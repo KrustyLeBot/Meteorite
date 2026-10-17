@@ -53,6 +53,7 @@ class WeatherWidget : AppWidgetProvider() {
         try {
             val forecast = app.api.forecast(city)
             val now = forecast.current
+            views.setInt(R.id.widget_root, "setBackgroundResource", background(now.code, now.isDay))
             views.setTextViewText(R.id.w_emoji, weatherEmoji(now.code, now.isDay))
             views.setTextViewText(R.id.w_temp, "${now.temp}°")
             views.setTextViewText(R.id.w_desc, weatherLabel(now.code))
@@ -71,6 +72,16 @@ class WeatherWidget : AppWidgetProvider() {
             views.setTextViewText(R.id.w_desc, "Météo indisponible")
         }
         return views
+    }
+
+    /** Background gradient matching the current weather. */
+    private fun background(code: Int, isDay: Boolean) = when {
+        code in 95..99 -> R.drawable.widget_bg_storm
+        code in 71..77 || code == 85 || code == 86 -> R.drawable.widget_bg_snow
+        code in 51..67 || code in 80..82 -> R.drawable.widget_bg_rain
+        !isDay -> R.drawable.widget_bg_night
+        code == 3 || code == 45 || code == 48 -> R.drawable.widget_bg_cloudy
+        else -> R.drawable.widget_bg_sunny
     }
 
     private fun clear(views: RemoteViews) {

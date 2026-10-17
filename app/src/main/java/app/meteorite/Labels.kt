@@ -105,7 +105,6 @@ private fun String.capitalized() = replaceFirstChar { it.uppercase() }
 
 fun dayTitle(date: LocalDate, today: LocalDate) = when (date) {
     today -> "Aujourd'hui"
-    today.plusDays(1) -> "Demain"
     else -> date.format(weekday).capitalized()
 }
 
