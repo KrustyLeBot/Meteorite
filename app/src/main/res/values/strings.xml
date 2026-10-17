@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Météorite</string>
+    <string name="widget_description">Météo du jour de ta première ville</string>
+</resources>
