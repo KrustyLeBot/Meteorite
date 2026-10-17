@@ -235,14 +235,19 @@ private fun NowCard(forecast: Forecast) {
 
 private fun dayRainText(day: Day): String {
     val rain = dayRain(day.rainMm)
-    val label = rainLabel(rain, isSnow(day.code))
-    if (rain == Rain.NONE) return "☂️ $label"
+    if (rain == Rain.NONE) return "☂️ ${rainLabel(rain)}"
     val duration = when {
         day.rainHours >= 20 -> " · toute la journée"
         day.rainHours > 0 -> " · environ ${day.rainHours} h"
         else -> ""
     }
-    return "${rain.drops} $label$duration"
+    return "${rain.drops} ${rainLabel(rain)}$duration"
+}
+
+/** Null when no snow is expected. */
+private fun daySnowText(day: Day): String? {
+    val level = daySnow(day.snowCm)
+    return if (level == Rain.NONE) null else "❄️ ${snowLabel(level)} · ${formatCm(day.snowCm)}"
 }
 
 @Composable
@@ -268,6 +273,7 @@ private fun DayCard(day: Day, today: LocalDate, onClick: () -> Unit) {
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(dayRainText(day), style = MaterialTheme.typography.bodyMedium)
+                daySnowText(day)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
                 Text(
                     "💨 ${windLabel(day.windKmh)} · ${day.windKmh} km/h",
                     style = MaterialTheme.typography.bodyMedium,
@@ -350,6 +356,7 @@ private fun DaySummary(day: Day, cityName: String) {
             }
             Spacer(Modifier.height(10.dp))
             Text(dayRainText(day), style = MaterialTheme.typography.titleSmall)
+            daySnowText(day)?.let { Text(it, style = MaterialTheme.typography.titleSmall) }
             Text(
                 "💨 ${windLabel(day.windKmh)} · ${day.windKmh} km/h",
                 style = MaterialTheme.typography.bodyMedium,
@@ -365,6 +372,7 @@ private fun DaySummary(day: Day, cityName: String) {
 @Composable
 private fun HourRow(hour: Hour, current: Boolean) {
     val rain = hourRain(hour.rainMm)
+    val snow = hourSnow(hour.snowCm)
     val background = if (current) MaterialTheme.colorScheme.primaryContainer
     else MaterialTheme.colorScheme.surface
     Row(
@@ -383,12 +391,15 @@ private fun HourRow(hour: Hour, current: Boolean) {
             style = MaterialTheme.typography.titleMedium,
         )
         Column(Modifier.weight(1f)) {
-            val text = if (rain == Rain.NONE) "Pas de pluie"
-            else "${rain.drops} ${rainLabel(rain, isSnow(hour.code))}"
+            val text = when {
+                snow != Rain.NONE -> "❄️ ${snowLabel(snow)} · ${formatCm(hour.snowCm)}"
+                rain != Rain.NONE -> "${rain.drops} ${rainLabel(rain)}"
+                else -> "Pas de pluie"
+            }
             Text(
                 text,
                 style = MaterialTheme.typography.bodyMedium,
-                color = if (rain == Rain.NONE) MaterialTheme.colorScheme.onSurfaceVariant
+                color = if (rain == Rain.NONE && snow == Rain.NONE) MaterialTheme.colorScheme.onSurfaceVariant
                 else MaterialTheme.colorScheme.onSurface,
             )
         }

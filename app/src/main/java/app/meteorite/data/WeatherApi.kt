@@ -45,12 +45,12 @@ class WeatherApi(private val client: OkHttpClient) {
                 "current", "temperature_2m,apparent_temperature,weather_code,is_day,wind_speed_10m"
             )
             .addQueryParameter(
-                "hourly", "temperature_2m,weather_code,precipitation,wind_speed_10m,is_day"
+                "hourly", "temperature_2m,weather_code,rain,showers,snowfall,wind_speed_10m,is_day"
             )
             .addQueryParameter(
                 "daily",
-                "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum," +
-                    "precipitation_hours,wind_speed_10m_max,sunrise,sunset"
+                "weather_code,temperature_2m_max,temperature_2m_min,rain_sum,showers_sum," +
+                    "snowfall_sum,precipitation_hours,wind_speed_10m_max,sunrise,sunset"
             )
             .addQueryParameter("timezone", "auto")
             .addQueryParameter("forecast_days", "16")
@@ -71,7 +71,9 @@ class WeatherApi(private val client: OkHttpClient) {
         val hTime = h.getJSONArray("time")
         val hTemp = h.getJSONArray("temperature_2m")
         val hCode = h.getJSONArray("weather_code")
-        val hRain = h.getJSONArray("precipitation")
+        val hRain = h.getJSONArray("rain")
+        val hShowers = h.getJSONArray("showers")
+        val hSnow = h.getJSONArray("snowfall")
         val hWind = h.getJSONArray("wind_speed_10m")
         val hDay = h.getJSONArray("is_day")
         val hours = List(hTime.length()) { i ->
@@ -79,7 +81,8 @@ class WeatherApi(private val client: OkHttpClient) {
                 time = LocalDateTime.parse(hTime.getString(i)),
                 temp = hTemp.num(i).roundToInt(),
                 code = hCode.num(i).roundToInt(),
-                rainMm = hRain.num(i),
+                rainMm = hRain.num(i) + hShowers.num(i),
+                snowCm = hSnow.num(i),
                 windKmh = hWind.num(i).roundToInt(),
                 isDay = hDay.num(i) > 0.5,
             )
@@ -91,7 +94,9 @@ class WeatherApi(private val client: OkHttpClient) {
         val dCode = d.getJSONArray("weather_code")
         val dMax = d.getJSONArray("temperature_2m_max")
         val dMin = d.getJSONArray("temperature_2m_min")
-        val dRain = d.getJSONArray("precipitation_sum")
+        val dRain = d.getJSONArray("rain_sum")
+        val dShowers = d.getJSONArray("showers_sum")
+        val dSnow = d.getJSONArray("snowfall_sum")
         val dRainHours = d.getJSONArray("precipitation_hours")
         val dWind = d.getJSONArray("wind_speed_10m_max")
         val dSunrise = d.getJSONArray("sunrise")
@@ -103,8 +108,9 @@ class WeatherApi(private val client: OkHttpClient) {
                 code = dCode.num(i).roundToInt(),
                 tMax = dMax.num(i).roundToInt(),
                 tMin = dMin.num(i).roundToInt(),
-                rainMm = dRain.num(i),
+                rainMm = dRain.num(i) + dShowers.num(i),
                 rainHours = dRainHours.num(i).roundToInt(),
+                snowCm = dSnow.num(i),
                 windKmh = dWind.num(i).roundToInt(),
                 sunrise = LocalDateTime.parse(dSunrise.getString(i)).toLocalTime(),
                 sunset = LocalDateTime.parse(dSunset.getString(i)).toLocalTime(),

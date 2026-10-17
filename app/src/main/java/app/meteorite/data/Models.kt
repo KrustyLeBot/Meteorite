@@ -33,6 +33,7 @@ data class Hour(
     val temp: Int,
     val code: Int,
     val rainMm: Double,
+    val snowCm: Double,
     val windKmh: Int,
     val isDay: Boolean,
 )
@@ -44,6 +45,7 @@ data class Day(
     val tMin: Int,
     val rainMm: Double,
     val rainHours: Int,
+    val snowCm: Double,
     val windKmh: Int,
     val sunrise: LocalTime,
     val sunset: LocalTime,

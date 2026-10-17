@@ -5,13 +5,12 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.math.roundToInt
 
 /** How hard it rains, in plain words instead of millimetres. */
 enum class Rain(val drops: String) {
     NONE(""), LIGHT("💧"), MODERATE("💧💧"), HEAVY("💧💧💧")
 }
-
-fun isSnow(code: Int) = code in 71..77 || code == 85 || code == 86
 
 fun dayRain(mm: Double) = when {
     mm < 0.5 -> Rain.NONE
@@ -27,21 +26,38 @@ fun hourRain(mm: Double) = when {
     else -> Rain.HEAVY
 }
 
-fun rainLabel(rain: Rain, snow: Boolean): String = if (snow) {
-    when (rain) {
-        Rain.NONE -> "Pas de neige"
-        Rain.LIGHT -> "Un peu de neige"
-        Rain.MODERATE -> "Neige"
-        Rain.HEAVY -> "Forte neige"
-    }
-} else {
-    when (rain) {
-        Rain.NONE -> "Pas de pluie"
-        Rain.LIGHT -> "Petite pluie"
-        Rain.MODERATE -> "Pluie modérée"
-        Rain.HEAVY -> "Grosse pluie"
-    }
+fun rainLabel(rain: Rain) = when (rain) {
+    Rain.NONE -> "Pas de pluie"
+    Rain.LIGHT -> "Petite pluie"
+    Rain.MODERATE -> "Pluie modérée"
+    Rain.HEAVY -> "Grosse pluie"
 }
+
+/** Snow is measured in centimetres; the same levels are reused for the wording. */
+fun daySnow(cm: Double) = when {
+    cm < 0.5 -> Rain.NONE
+    cm < 2 -> Rain.LIGHT
+    cm < 8 -> Rain.MODERATE
+    else -> Rain.HEAVY
+}
+
+fun hourSnow(cm: Double) = when {
+    cm < 0.1 -> Rain.NONE
+    cm < 0.5 -> Rain.LIGHT
+    cm < 2 -> Rain.MODERATE
+    else -> Rain.HEAVY
+}
+
+fun snowLabel(level: Rain) = when (level) {
+    Rain.NONE -> "Pas de neige"
+    Rain.LIGHT -> "Un peu de neige"
+    Rain.MODERATE -> "Neige"
+    Rain.HEAVY -> "Forte neige"
+}
+
+/** "2,5 cm" below 10 cm, whole centimetres above. */
+fun formatCm(cm: Double) =
+    if (cm < 10) String.format(Locale.FRENCH, "%.1f cm", cm) else "${cm.roundToInt()} cm"
 
 fun windLabel(kmh: Int) = when {
     kmh < 20 -> "Vent faible"
@@ -97,18 +113,30 @@ fun daySubtitle(date: LocalDate) = date.format(shortDate)
 
 fun fullDayTitle(date: LocalDate) = date.format(fullDate).capitalized()
 
-/** "Petite pluie de 15 h à 18 h", or a calm sentence when nothing is expected. */
+/** Rain and snow wording for the hours left today, or a calm sentence when nothing is expected. */
 fun restOfDaySentence(hours: List<Hour>, now: LocalDateTime): String {
-    val wet = hours.filter { hourRain(it.rainMm) != Rain.NONE }
-    if (wet.isEmpty()) return "Pas de pluie d'ici ce soir"
-    val worst = wet.maxOf { hourRain(it.rainMm) }
-    val label = rainLabel(worst, wet.any { isSnow(it.code) })
+    val rainHours = hours.filter { hourRain(it.rainMm) != Rain.NONE }
+    val snowHours = hours.filter { hourSnow(it.snowCm) != Rain.NONE }
+    val parts = listOfNotNull(
+        span(rainHours, now) { h -> hourRain(h.rainMm) }
+            ?.let { (level, when_) -> "${level.drops} ${rainLabel(level)} $when_" },
+        span(snowHours, now) { h -> hourSnow(h.snowCm) }
+            ?.let { (level, when_) -> "❄️ ${snowLabel(level)} $when_" },
+    )
+    return if (parts.isEmpty()) "Pas de pluie d'ici ce soir" else parts.joinToString("\n")
+}
+
+/** Worst level and the time span ("de 15 h à 18 h") of [wet] hours, or null when there are none. */
+private fun span(wet: List<Hour>, now: LocalDateTime, level: (Hour) -> Rain): Pair<Rain, String>? {
+    if (wet.isEmpty()) return null
+    val worst = wet.maxOf(level)
     val first = wet.first().time.hour
     val end = wet.last().time.hour + 1
     val endText = if (end == 24) "minuit" else "$end h"
-    return when {
-        first == now.hour -> "${worst.drops} $label jusqu'à $endText"
-        first + 1 == end -> "${worst.drops} $label vers $first h"
-        else -> "${worst.drops} $label de $first h à $endText"
+    val text = when {
+        first == now.hour -> "jusqu'à $endText"
+        first + 1 == end -> "vers $first h"
+        else -> "de $first h à $endText"
     }
+    return worst to text
 }
