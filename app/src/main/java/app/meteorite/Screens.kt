@@ -319,7 +319,7 @@ private fun DetailScreen(vm: MeteoViewModel, dayIndex: Int) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            item { DaySummary(day, city.name) }
+            item { DaySummary(day, city?.name.orEmpty()) }
             items(day.hours) { hour -> HourRow(hour, current = hour.time.withMinute(0) == now.withMinute(0)) }
         }
     }
