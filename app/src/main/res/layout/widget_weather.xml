@@ -48,9 +48,18 @@
                 android:id="@+id/w_desc"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:maxLines="2"
+                android:maxLines="1"
                 android:textColor="@color/widget_text_dim"
                 android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/w_updated"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/widget_text_dim"
+                android:textSize="10sp" />
         </LinearLayout>
     </LinearLayout>
 

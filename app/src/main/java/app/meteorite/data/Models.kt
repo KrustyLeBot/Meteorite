@@ -1,8 +1,10 @@
 package app.meteorite.data
 
+import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
+import java.time.ZoneOffset
 import java.time.temporal.ChronoUnit
 
 data class City(
@@ -31,6 +33,7 @@ data class Current(
 data class Hour(
     val time: LocalDateTime,
     val temp: Int,
+    val feelsLike: Int,
     val code: Int,
     val rainMm: Double,
     val snowCm: Double,
@@ -52,7 +55,26 @@ data class Day(
     val hours: List<Hour>,
 )
 
-data class Forecast(val current: Current, val days: List<Day>) {
+/** A forecast kept on the phone, with the time it was downloaded (epoch millis). */
+data class Cached(val forecast: Forecast, val savedAt: Long)
+
+data class Forecast(val current: Current, val days: List<Day>, val utcOffsetSeconds: Int) {
+    /**
+     * Brings a possibly old forecast up to date with the phone clock: days that are over are
+     * dropped, and "now" comes from the hourly data when the current conditions are too old.
+     */
+    fun rolled(): Forecast {
+        val now = LocalDateTime.now(ZoneOffset.ofTotalSeconds(utcOffsetSeconds))
+        val remainingDays = days.filter { !it.date.isBefore(now.toLocalDate()) }
+        if (remainingDays.isEmpty()) return this
+        val hour = now.truncatedTo(ChronoUnit.HOURS)
+        val fresh = Duration.between(current.time, now).abs() < Duration.ofMinutes(45)
+        val cur = if (fresh) current else remainingDays.first().hours.firstOrNull { it.time == hour }
+            ?.let { Current(hour, it.temp, it.feelsLike, it.code, it.isDay, it.windKmh) }
+            ?: current
+        return Forecast(cur, remainingDays, utcOffsetSeconds)
+    }
+
     /** Hours of today that are not over yet (local time of the city). */
     fun todayRemaining(): List<Hour> {
         val now = current.time.truncatedTo(ChronoUnit.HOURS)

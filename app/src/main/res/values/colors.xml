@@ -2,5 +2,5 @@
     <color name="window_bg">#FFF3F7FF</color>
     <color name="widget_text">#FFFFFFFF</color>
     <color name="widget_text_dim">#CCFFFFFF</color>
-    <color name="widget_pill">#33FFFFFF</color>
+    <color name="widget_pill">#1FFFFFFF</color>
 </resources>

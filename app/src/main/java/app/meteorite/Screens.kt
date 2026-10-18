@@ -183,13 +183,13 @@ private fun CityContent(vm: MeteoViewModel, city: City) {
         }
 
         is ForecastState.Ready -> {
-            val forecast = state.forecast
+            val forecast = state.forecast.rolled()
             val today = forecast.current.time.toLocalDate()
             LazyColumn(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                item { NowCard(forecast) }
+                item { NowCard(forecast, state.loadedAt, vm.refreshErrors[city.id]) }
                 itemsIndexed(forecast.days) { i, day ->
                     DayCard(day, today) { vm.screen = Screen.Detail(i) }
                 }
@@ -199,7 +199,7 @@ private fun CityContent(vm: MeteoViewModel, city: City) {
 }
 
 @Composable
-private fun NowCard(forecast: Forecast) {
+private fun NowCard(forecast: Forecast, savedAt: Long, refreshError: String?) {
     val now = forecast.current
     Card(
         Modifier.fillMaxWidth(),
@@ -228,6 +228,11 @@ private fun NowCard(forecast: Forecast) {
             Text(
                 "💨 ${windLabel(now.windKmh)} · ${now.windKmh} km/h",
                 style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                updatedText(savedAt) + (refreshError?.let { " · actualisation impossible $it" } ?: ""),
+                style = MaterialTheme.typography.bodySmall,
             )
         }
     }
@@ -297,7 +302,7 @@ private fun DayCard(day: Day, today: LocalDate, onClick: () -> Unit) {
 @Composable
 private fun DetailScreen(vm: MeteoViewModel, dayIndex: Int) {
     val city = vm.selectedCity
-    val forecast = (city?.let { vm.forecasts[it.id] } as? ForecastState.Ready)?.forecast
+    val forecast = (city?.let { vm.forecasts[it.id] } as? ForecastState.Ready)?.forecast?.rolled()
     val day = forecast?.days?.getOrNull(dayIndex)
 
     Scaffold(

@@ -39,6 +39,9 @@ class MeteoViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var screen: Screen by mutableStateOf(Screen.Main)
     val forecasts = mutableStateMapOf<String, ForecastState>()
+
+    /** Why the last refresh failed, per city, while older data is still shown. */
+    val refreshErrors = mutableStateMapOf<String, String>()
     var refreshing by mutableStateOf(false)
         private set
 
@@ -59,6 +62,11 @@ class MeteoViewModel(app: Application) : AndroidViewModel(app) {
     private var searchJob: Job? = null
 
     init {
+        cities.forEach { city ->
+            meteo.forecastCache.load(city)?.let {
+                forecasts[city.id] = ForecastState.Ready(it.forecast, it.savedAt)
+            }
+        }
         refreshMyLocation()
     }
 
@@ -88,8 +96,13 @@ class MeteoViewModel(app: Application) : AndroidViewModel(app) {
             when {
                 // The city moved while loading (position update): load again.
                 cities.none { it == city } -> ensureLoaded()
-                result is ForecastState.Error && old is ForecastState.Ready && !manual -> Unit
-                else -> forecasts[city.id] = result
+                // Keep showing the saved forecast and say the refresh failed.
+                result is ForecastState.Error && old is ForecastState.Ready ->
+                    refreshErrors[city.id] = result.message.substringAfterLast("\n")
+                else -> {
+                    refreshErrors.remove(city.id)
+                    forecasts[city.id] = result
+                }
             }
         }
     }
@@ -141,6 +154,8 @@ class MeteoViewModel(app: Application) : AndroidViewModel(app) {
     fun removeSelected() {
         val city = selectedCity ?: return
         forecasts.remove(city.id)
+        refreshErrors.remove(city.id)
+        meteo.forecastCache.remove(city)
         saveCities(cities.filter { it.id != city.id })
         selected = selected.coerceAtMost(cities.lastIndex).coerceAtLeast(0)
     }

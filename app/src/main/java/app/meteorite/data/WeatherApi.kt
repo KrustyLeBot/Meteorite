@@ -1,7 +1,9 @@
 package app.meteorite.data
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Response
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -11,10 +13,12 @@ import org.json.JSONObject
 import java.io.IOException
 import java.time.LocalDate
 import java.time.LocalDateTime
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlin.math.roundToInt
 
 /** Open-Meteo client (free, no API key). */
-class WeatherApi(private val client: OkHttpClient) {
+class WeatherApi(private val client: OkHttpClient, private val cache: ForecastCache) {
 
     suspend fun search(query: String): List<City> {
         val url = "https://geocoding-api.open-meteo.com/v1/search".toHttpUrl().newBuilder()
@@ -37,6 +41,7 @@ class WeatherApi(private val client: OkHttpClient) {
         }
     }
 
+    /** Downloads the forecast and keeps a copy on the phone. */
     suspend fun forecast(city: City): Forecast {
         val url = "https://api.open-meteo.com/v1/forecast".toHttpUrl().newBuilder()
             .addQueryParameter("latitude", city.lat.toString())
@@ -45,7 +50,9 @@ class WeatherApi(private val client: OkHttpClient) {
                 "current", "temperature_2m,apparent_temperature,weather_code,is_day,wind_speed_10m"
             )
             .addQueryParameter(
-                "hourly", "temperature_2m,weather_code,rain,showers,snowfall,wind_speed_10m,is_day"
+                "hourly",
+                "temperature_2m,apparent_temperature,weather_code,rain,showers,snowfall," +
+                    "wind_speed_10m,is_day"
             )
             .addQueryParameter(
                 "daily",
@@ -56,78 +63,103 @@ class WeatherApi(private val client: OkHttpClient) {
             .addQueryParameter("forecast_days", "16")
             .build()
         val json = get(url)
-
-        val c = json.getJSONObject("current")
-        val current = Current(
-            time = LocalDateTime.parse(c.getString("time")),
-            temp = c.getDouble("temperature_2m").roundToInt(),
-            feelsLike = c.getDouble("apparent_temperature").roundToInt(),
-            code = c.getInt("weather_code"),
-            isDay = c.getInt("is_day") == 1,
-            windKmh = c.getDouble("wind_speed_10m").roundToInt(),
-        )
-
-        val h = json.getJSONObject("hourly")
-        val hTime = h.getJSONArray("time")
-        val hTemp = h.getJSONArray("temperature_2m")
-        val hCode = h.getJSONArray("weather_code")
-        val hRain = h.getJSONArray("rain")
-        val hShowers = h.getJSONArray("showers")
-        val hSnow = h.getJSONArray("snowfall")
-        val hWind = h.getJSONArray("wind_speed_10m")
-        val hDay = h.getJSONArray("is_day")
-        val hours = List(hTime.length()) { i ->
-            Hour(
-                time = LocalDateTime.parse(hTime.getString(i)),
-                temp = hTemp.num(i).roundToInt(),
-                code = hCode.num(i).roundToInt(),
-                rainMm = hRain.num(i) + hShowers.num(i),
-                snowCm = hSnow.num(i),
-                windKmh = hWind.num(i).roundToInt(),
-                isDay = hDay.num(i) > 0.5,
-            )
-        }
-        val hoursByDate = hours.groupBy { it.time.toLocalDate() }
-
-        val d = json.getJSONObject("daily")
-        val dTime = d.getJSONArray("time")
-        val dCode = d.getJSONArray("weather_code")
-        val dMax = d.getJSONArray("temperature_2m_max")
-        val dMin = d.getJSONArray("temperature_2m_min")
-        val dRain = d.getJSONArray("rain_sum")
-        val dShowers = d.getJSONArray("showers_sum")
-        val dSnow = d.getJSONArray("snowfall_sum")
-        val dRainHours = d.getJSONArray("precipitation_hours")
-        val dWind = d.getJSONArray("wind_speed_10m_max")
-        val dSunrise = d.getJSONArray("sunrise")
-        val dSunset = d.getJSONArray("sunset")
-        val days = List(dTime.length()) { i ->
-            val date = LocalDate.parse(dTime.getString(i))
-            Day(
-                date = date,
-                code = dCode.num(i).roundToInt(),
-                tMax = dMax.num(i).roundToInt(),
-                tMin = dMin.num(i).roundToInt(),
-                rainMm = dRain.num(i) + dShowers.num(i),
-                rainHours = dRainHours.num(i).roundToInt(),
-                snowCm = dSnow.num(i),
-                windKmh = dWind.num(i).roundToInt(),
-                sunrise = LocalDateTime.parse(dSunrise.getString(i)).toLocalTime(),
-                sunset = LocalDateTime.parse(dSunset.getString(i)).toLocalTime(),
-                hours = hoursByDate[date].orEmpty(),
-            )
-        }
-        return Forecast(current, days)
+        val forecast = parseForecast(json)
+        cache.save(city, json.toString())
+        return forecast
     }
 
-    /** Numeric value at [i], 0 when the API returned null. */
-    private fun JSONArray.num(i: Int): Double = if (isNull(i)) 0.0 else getDouble(i)
+    private suspend fun get(url: HttpUrl): JSONObject = suspendCancellableCoroutine { cont ->
+        val call = client.newCall(Request.Builder().url(url).build())
+        cont.invokeOnCancellation { call.cancel() }
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                cont.resumeWithException(e)
+            }
 
-    private suspend fun get(url: HttpUrl): JSONObject = withContext(Dispatchers.IO) {
-        client.newCall(Request.Builder().url(url).build()).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw IOException("Erreur du service météo (${response.code})")
-            JSONObject(body)
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    try {
+                        val body = it.body?.string().orEmpty()
+                        if (!it.isSuccessful) {
+                            throw IOException("Erreur du service météo (${it.code})")
+                        }
+                        cont.resume(JSONObject(body))
+                    } catch (e: Exception) {
+                        cont.resumeWithException(e)
+                    }
+                }
+            }
+        })
+    }
+
+    companion object {
+        fun parseForecast(json: JSONObject): Forecast {
+            val c = json.getJSONObject("current")
+            val current = Current(
+                time = LocalDateTime.parse(c.getString("time")),
+                temp = c.getDouble("temperature_2m").roundToInt(),
+                feelsLike = c.getDouble("apparent_temperature").roundToInt(),
+                code = c.getInt("weather_code"),
+                isDay = c.getInt("is_day") == 1,
+                windKmh = c.getDouble("wind_speed_10m").roundToInt(),
+            )
+
+            val h = json.getJSONObject("hourly")
+            val hTime = h.getJSONArray("time")
+            val hTemp = h.getJSONArray("temperature_2m")
+            val hFeels = h.optJSONArray("apparent_temperature")
+            val hCode = h.getJSONArray("weather_code")
+            val hRain = h.getJSONArray("rain")
+            val hShowers = h.getJSONArray("showers")
+            val hSnow = h.getJSONArray("snowfall")
+            val hWind = h.getJSONArray("wind_speed_10m")
+            val hDay = h.getJSONArray("is_day")
+            val hours = List(hTime.length()) { i ->
+                Hour(
+                    time = LocalDateTime.parse(hTime.getString(i)),
+                    temp = hTemp.num(i).roundToInt(),
+                    feelsLike = (hFeels ?: hTemp).num(i).roundToInt(),
+                    code = hCode.num(i).roundToInt(),
+                    rainMm = hRain.num(i) + hShowers.num(i),
+                    snowCm = hSnow.num(i),
+                    windKmh = hWind.num(i).roundToInt(),
+                    isDay = hDay.num(i) > 0.5,
+                )
+            }
+            val hoursByDate = hours.groupBy { it.time.toLocalDate() }
+
+            val d = json.getJSONObject("daily")
+            val dTime = d.getJSONArray("time")
+            val dCode = d.getJSONArray("weather_code")
+            val dMax = d.getJSONArray("temperature_2m_max")
+            val dMin = d.getJSONArray("temperature_2m_min")
+            val dRain = d.getJSONArray("rain_sum")
+            val dShowers = d.getJSONArray("showers_sum")
+            val dSnow = d.getJSONArray("snowfall_sum")
+            val dRainHours = d.getJSONArray("precipitation_hours")
+            val dWind = d.getJSONArray("wind_speed_10m_max")
+            val dSunrise = d.getJSONArray("sunrise")
+            val dSunset = d.getJSONArray("sunset")
+            val days = List(dTime.length()) { i ->
+                val date = LocalDate.parse(dTime.getString(i))
+                Day(
+                    date = date,
+                    code = dCode.num(i).roundToInt(),
+                    tMax = dMax.num(i).roundToInt(),
+                    tMin = dMin.num(i).roundToInt(),
+                    rainMm = dRain.num(i) + dShowers.num(i),
+                    rainHours = dRainHours.num(i).roundToInt(),
+                    snowCm = dSnow.num(i),
+                    windKmh = dWind.num(i).roundToInt(),
+                    sunrise = LocalDateTime.parse(dSunrise.getString(i)).toLocalTime(),
+                    sunset = LocalDateTime.parse(dSunset.getString(i)).toLocalTime(),
+                    hours = hoursByDate[date].orEmpty(),
+                )
+            }
+            return Forecast(current, days, json.getInt("utc_offset_seconds"))
         }
     }
 }
+
+/** Numeric value at [i], 0 when the API returned null. */
+private fun JSONArray.num(i: Int): Double = if (isNull(i)) 0.0 else getDouble(i)

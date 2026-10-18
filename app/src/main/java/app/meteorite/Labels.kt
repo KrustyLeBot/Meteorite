@@ -1,8 +1,10 @@
 package app.meteorite
 
 import app.meteorite.data.Hour
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -138,4 +140,14 @@ private fun span(wet: List<Hour>, now: LocalDateTime, level: (Hour) -> Rain): Pa
         else -> "de $first h à $endText"
     }
     return worst to text
+}
+
+private val clockTime = DateTimeFormatter.ofPattern("H:mm", Locale.FRENCH)
+
+/** "Mis à jour à 14:32", with the date when it was not today. */
+fun updatedText(savedAt: Long): String {
+    val time = Instant.ofEpochMilli(savedAt).atZone(ZoneId.systemDefault())
+    val at = time.format(clockTime)
+    return if (time.toLocalDate() == LocalDate.now()) "Mis à jour à $at"
+    else "Mis à jour le ${time.format(shortDate)} à $at"
 }
