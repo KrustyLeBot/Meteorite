@@ -89,7 +89,11 @@ class WeatherWidget : AppWidgetProvider() {
             views.setTextViewText(R.id.w_desc, "Ouvre l'application pour ajouter une ville")
             return views
         }
-        views.setTextViewText(R.id.w_city, if (city.isGps) "📍 ${city.displayName}" else city.name)
+        // The pin alone marks the live position; "Ma position" is kept only while the town is unknown.
+        views.setTextViewText(
+            R.id.w_city,
+            if (city.isGps) "📍 ${city.subtitle.ifBlank { city.name }}" else city.name
+        )
         if (forecast == null || savedAt == null) {
             views.setTextViewText(R.id.w_desc, if (failure == null) "Chargement…" else "Pas encore de météo")
             if (failure != null) views.setTextViewText(R.id.w_updated, "Erreur : $failure")
