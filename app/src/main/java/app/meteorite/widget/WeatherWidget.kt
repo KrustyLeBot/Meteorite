@@ -29,18 +29,36 @@ class WeatherWidget : AppWidgetProvider() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val app = context.applicationContext as MeteoApp
-                val city = app.cityStore.load().firstOrNull()
                 fun push(views: RemoteViews) = ids.forEach { manager.updateAppWidget(it, views) }
 
                 // Show the saved forecast right away, then try to refresh it.
-                val saved = city?.let { app.forecastCache.load(it) }
-                push(render(context, city, saved?.forecast, saved?.savedAt, null))
+                val first = app.cityStore.load().firstOrNull()
+                val saved = first?.let { app.forecastCache.load(it) }
+                push(render(context, first, saved?.forecast, saved?.savedAt, null))
+
+                // "Ma position" follows the phone even when the app is closed.
+                var city = first
+                if (first != null && first.isGps) {
+                    val moved = try {
+                        withTimeout(15_000) { app.position.refreshed(first) }
+                    } catch (e: Exception) {
+                        null
+                    }
+                    if (moved != null) {
+                        app.cityStore.upsert(moved)
+                        city = moved
+                    }
+                }
                 if (city != null) {
+                    val cached = if (city === first) saved else app.forecastCache.load(city)
+                    if (city !== first) {
+                        push(render(context, city, cached?.forecast, cached?.savedAt, null))
+                    }
                     try {
                         val fresh = withTimeout(12_000) { app.api.forecast(city) }
                         push(render(context, city, fresh, System.currentTimeMillis(), null))
                     } catch (e: Exception) {
-                        push(render(context, city, saved?.forecast, saved?.savedAt, e.javaClass.simpleName))
+                        push(render(context, city, cached?.forecast, cached?.savedAt, e.javaClass.simpleName))
                     }
                 }
             } finally {
@@ -71,7 +89,7 @@ class WeatherWidget : AppWidgetProvider() {
             views.setTextViewText(R.id.w_desc, "Ouvre l'application pour ajouter une ville")
             return views
         }
-        views.setTextViewText(R.id.w_city, if (city.isGps) "📍 ${city.name}" else city.name)
+        views.setTextViewText(R.id.w_city, if (city.isGps) "📍 ${city.displayName}" else city.name)
         if (forecast == null || savedAt == null) {
             views.setTextViewText(R.id.w_desc, if (failure == null) "Chargement…" else "Pas encore de météo")
             if (failure != null) views.setTextViewText(R.id.w_updated, "Erreur : $failure")

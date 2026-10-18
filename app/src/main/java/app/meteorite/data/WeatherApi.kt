@@ -41,6 +41,23 @@ class WeatherApi(private val client: OkHttpClient, private val cache: ForecastCa
         }
     }
 
+    /** Name of the town at these coordinates (OpenStreetMap Nominatim), empty when unknown. */
+    suspend fun placeName(lat: Double, lon: Double): String {
+        val url = "https://nominatim.openstreetmap.org/reverse".toHttpUrl().newBuilder()
+            .addQueryParameter("format", "jsonv2")
+            .addQueryParameter("lat", lat.toString())
+            .addQueryParameter("lon", lon.toString())
+            .addQueryParameter("zoom", "12")
+            .addQueryParameter("addressdetails", "1")
+            .addQueryParameter("accept-language", "fr")
+            .build()
+        val address = get(url, USER_AGENT).optJSONObject("address") ?: return ""
+        return listOf("city", "town", "village", "municipality", "hamlet", "suburb")
+            .map { address.optString(it) }
+            .firstOrNull { it.isNotBlank() }
+            .orEmpty()
+    }
+
     /** Downloads the forecast and keeps a copy on the phone. */
     suspend fun forecast(city: City): Forecast {
         val url = "https://api.open-meteo.com/v1/forecast".toHttpUrl().newBuilder()
@@ -68,8 +85,12 @@ class WeatherApi(private val client: OkHttpClient, private val cache: ForecastCa
         return forecast
     }
 
-    private suspend fun get(url: HttpUrl): JSONObject = suspendCancellableCoroutine { cont ->
-        val call = client.newCall(Request.Builder().url(url).build())
+    private suspend fun get(url: HttpUrl, userAgent: String? = null): JSONObject =
+        suspendCancellableCoroutine { cont ->
+        val request = Request.Builder().url(url)
+            .apply { userAgent?.let { header("User-Agent", it) } }
+            .build()
+        val call = client.newCall(request)
         cont.invokeOnCancellation { call.cancel() }
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
@@ -93,6 +114,9 @@ class WeatherApi(private val client: OkHttpClient, private val cache: ForecastCa
     }
 
     companion object {
+        /** Nominatim requires an identifying User-Agent. */
+        private const val USER_AGENT = "Meteorite/1.0 (Android weather app)"
+
         fun parseForecast(json: JSONObject): Forecast {
             val c = json.getJSONObject("current")
             val current = Current(

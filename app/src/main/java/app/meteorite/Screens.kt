@@ -3,6 +3,7 @@ package app.meteorite
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +15,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -36,26 +39,35 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import app.meteorite.data.City
 import app.meteorite.data.Day
 import app.meteorite.data.Forecast
@@ -67,10 +79,10 @@ import java.time.format.DateTimeFormatter
 private val clock = DateTimeFormatter.ofPattern("H:mm")
 
 @Composable
-fun MeteoRoot(vm: MeteoViewModel, onLocate: () -> Unit) {
+fun MeteoRoot(vm: MeteoViewModel, onLocate: () -> Unit, onAllowBackground: () -> Unit) {
     BackHandler(enabled = vm.screen != Screen.Main) { vm.screen = Screen.Main }
     when (val screen = vm.screen) {
-        Screen.Main -> MainScreen(vm)
+        Screen.Main -> MainScreen(vm, onAllowBackground)
         Screen.Search -> SearchScreen(vm, onLocate)
         is Screen.Detail -> DetailScreen(vm, screen.dayIndex)
     }
@@ -80,7 +92,7 @@ fun MeteoRoot(vm: MeteoViewModel, onLocate: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MainScreen(vm: MeteoViewModel) {
+private fun MainScreen(vm: MeteoViewModel, onAllowBackground: () -> Unit) {
     val city = vm.selectedCity
     var confirmDelete by remember { mutableStateOf(false) }
 
@@ -109,19 +121,16 @@ private fun MainScreen(vm: MeteoViewModel) {
             if (city == null) {
                 EmptyState(vm)
             } else {
-                ScrollableTabRow(
-                    selectedTabIndex = vm.selected,
-                    edgePadding = 8.dp,
-                    containerColor = MaterialTheme.colorScheme.background,
-                ) {
-                    vm.cities.forEachIndexed { i, c ->
-                        Tab(
-                            selected = i == vm.selected,
-                            onClick = { vm.select(i) },
-                            text = { Text(if (c.isGps) "📍 ${c.name}" else c.name, maxLines = 1) },
-                        )
-                    }
+                CityTabs(vm)
+                if (vm.cities.size > 1) {
+                    Text(
+                        "Maintiens un onglet pour le déplacer · le premier s'affiche sur le widget",
+                        Modifier.padding(horizontal = 16.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
+                if (vm.cities.any { it.isGps } && !vm.backgroundOk) LocationBanner(onAllowBackground)
                 if (vm.refreshing) LinearProgressIndicator(Modifier.fillMaxWidth())
                 CityContent(vm, city)
             }
@@ -189,7 +198,7 @@ private fun CityContent(vm: MeteoViewModel, city: City) {
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                item { NowCard(forecast, state.loadedAt, vm.refreshErrors[city.id]) }
+                item { NowCard(city, forecast, state.loadedAt, vm.refreshErrors[city.id]) }
                 itemsIndexed(forecast.days) { i, day ->
                     DayCard(day, today) { vm.screen = Screen.Detail(i) }
                 }
@@ -199,7 +208,7 @@ private fun CityContent(vm: MeteoViewModel, city: City) {
 }
 
 @Composable
-private fun NowCard(forecast: Forecast, savedAt: Long, refreshError: String?) {
+private fun NowCard(city: City, forecast: Forecast, savedAt: Long, refreshError: String?) {
     val now = forecast.current
     Card(
         Modifier.fillMaxWidth(),
@@ -209,6 +218,10 @@ private fun NowCard(forecast: Forecast, savedAt: Long, refreshError: String?) {
         ),
     ) {
         Column(Modifier.padding(18.dp)) {
+            if (city.isGps && city.subtitle.isNotBlank()) {
+                Text("📍 ${city.subtitle}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(6.dp))
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(weatherEmoji(now.code, now.isDay), fontSize = 60.sp)
                 Spacer(Modifier.width(16.dp))
@@ -296,6 +309,122 @@ private fun DayCard(day: Day, today: LocalDate, onClick: () -> Unit) {
     }
 }
 
+@Composable
+private fun CityTabs(vm: MeteoViewModel) {
+    val haptic = LocalHapticFeedback.current
+    var draggingId by remember { mutableStateOf<String?>(null) }
+    var dragOffset by remember { mutableFloatStateOf(0f) }
+    val widths = remember { mutableStateMapOf<String, Int>() }
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 8.dp)
+    ) {
+        vm.cities.forEach { city ->
+            key(city.id) {
+                val index = vm.cities.indexOfFirst { it.id == city.id }
+                val dragging = draggingId == city.id
+                val selected = index == vm.selected
+                Box(
+                    Modifier
+                        .onSizeChanged { widths[city.id] = it.width }
+                        .zIndex(if (dragging) 1f else 0f)
+                        .graphicsLayer {
+                            translationX = if (dragging) dragOffset else 0f
+                            scaleX = if (dragging) 1.08f else 1f
+                            scaleY = if (dragging) 1.08f else 1f
+                        }
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(
+                            if (dragging) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                        )
+                        .clickable { vm.select(index) }
+                        .pointerInput(city.id) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = {
+                                    draggingId = city.id
+                                    dragOffset = 0f
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                },
+                                onDrag = { change, amount ->
+                                    change.consume()
+                                    dragOffset += amount.x
+                                    val i = vm.cities.indexOfFirst { it.id == city.id }
+                                    val next = vm.cities.getOrNull(i + 1)
+                                    val prev = vm.cities.getOrNull(i - 1)
+                                    val nextWidth = next?.let { widths[it.id] } ?: 0
+                                    val prevWidth = prev?.let { widths[it.id] } ?: 0
+                                    // Swapping moves the tab in the row, so the finger offset shrinks by that width.
+                                    if (next != null && dragOffset > nextWidth / 2f) {
+                                        vm.moveCity(i, i + 1)
+                                        dragOffset -= nextWidth
+                                    } else if (prev != null && dragOffset < -prevWidth / 2f) {
+                                        vm.moveCity(i, i - 1)
+                                        dragOffset += prevWidth
+                                    }
+                                },
+                                onDragEnd = {
+                                    draggingId = null
+                                    dragOffset = 0f
+                                    vm.orderChanged()
+                                },
+                                onDragCancel = {
+                                    draggingId = null
+                                    dragOffset = 0f
+                                    vm.orderChanged()
+                                },
+                            )
+                        }
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            if (city.isGps) "📍 ${city.name}" else city.name,
+                            maxLines = 1,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (selected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Box(
+                            Modifier
+                                .width(24.dp)
+                                .height(3.dp)
+                                .background(
+                                    if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    RoundedCornerShape(2.dp),
+                                )
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LocationBanner(onAllow: () -> Unit) {
+    Card(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        ),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Text(
+                "Pour que le widget suive tes déplacements même quand l'application est fermée, " +
+                    "autorise la position « Toujours ».",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.height(8.dp))
+            Button(onClick = onAllow) { Text("Autoriser") }
+        }
+    }
+}
+
 // ---------------------------------------------------------------- Day detail
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -330,7 +459,7 @@ private fun DetailScreen(vm: MeteoViewModel, dayIndex: Int) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            item { DaySummary(day, city?.name.orEmpty()) }
+            item { DaySummary(day, city?.displayName.orEmpty()) }
             items(day.hours) { hour -> HourRow(hour, current = hour.time.withMinute(0) == now.withMinute(0)) }
         }
     }

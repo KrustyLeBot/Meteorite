@@ -1,7 +1,6 @@
 package app.meteorite
 
 import android.app.Application
-import android.location.Location
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -44,6 +43,8 @@ class MeteoViewModel(app: Application) : AndroidViewModel(app) {
     val refreshErrors = mutableStateMapOf<String, String>()
     var refreshing by mutableStateOf(false)
         private set
+    var backgroundOk by mutableStateOf(meteo.locator.hasBackgroundPermission())
+        private set
 
     var query by mutableStateOf("")
         private set
@@ -67,7 +68,6 @@ class MeteoViewModel(app: Application) : AndroidViewModel(app) {
                 forecasts[city.id] = ForecastState.Ready(it.forecast, it.savedAt)
             }
         }
-        refreshMyLocation()
     }
 
     fun select(index: Int) {
@@ -168,12 +168,13 @@ class MeteoViewModel(app: Application) : AndroidViewModel(app) {
             locating = true
             searchMessage = null
             val location = meteo.locator.locate()
-            locating = false
             if (location == null) {
+                locating = false
                 searchMessage = "Position introuvable. Vérifie que la localisation du téléphone est activée."
                 return@launch
             }
-            setMyLocation(location)
+            applyMyPosition(meteo.position.city(location))
+            locating = false
             selected = cities.indexOfFirst { it.isGps }
             screen = Screen.Main
         }
@@ -183,25 +184,45 @@ class MeteoViewModel(app: Application) : AndroidViewModel(app) {
         searchMessage = "Autorisation de localisation refusée."
     }
 
-    /** Keeps "Ma position" up to date when the app opens. */
-    private fun refreshMyLocation() {
-        if (cities.none { it.isGps } || !meteo.locator.hasPermission()) return
-        viewModelScope.launch { meteo.locator.locate()?.let { setMyLocation(it) } }
+    /** Follows the phone every minute while the app is open. */
+    suspend fun trackMyLocation() {
+        while (true) {
+            cities.firstOrNull { it.isGps }?.let { old ->
+                if (meteo.locator.hasPermission()) {
+                    meteo.position.refreshed(old)?.let { applyMyPosition(it) }
+                }
+            }
+            delay(60_000)
+        }
     }
 
-    private fun setMyLocation(location: Location) {
-        val mine = City(City.GPS_ID, "Ma position", "", location.latitude, location.longitude)
+    private fun applyMyPosition(mine: City) {
         val index = cities.indexOfFirst { it.isGps }
-        if (index >= 0) {
-            val old = cities[index]
-            val moved = FloatArray(1)
-            Location.distanceBetween(old.lat, old.lon, mine.lat, mine.lon, moved)
-            if (moved[0] < 2_000) return
+        val old = cities.getOrNull(index)
+        // A different place needs a new forecast; a newly found town name does not.
+        if (old == null || old.lat != mine.lat || old.lon != mine.lon) {
+            forecasts.remove(City.GPS_ID)
+            refreshErrors.remove(City.GPS_ID)
         }
-        forecasts.remove(City.GPS_ID)
         saveCities(
             if (index >= 0) cities.toMutableList().also { it[index] = mine } else cities + mine
         )
+    }
+
+    /** Moves a tab; the first tab is the one shown by the widget. */
+    fun moveCity(from: Int, to: Int) {
+        val keep = selectedCity?.id
+        val list = cities.toMutableList().apply { add(to, removeAt(from)) }
+        cities = list
+        meteo.cityStore.save(list)
+        selected = list.indexOfFirst { it.id == keep }.coerceAtLeast(0)
+    }
+
+    /** Called when a tab drag ends, so the widget picks the new first city. */
+    fun orderChanged() = WeatherWidget.requestUpdate(meteo)
+
+    fun recheckPermissions() {
+        backgroundOk = meteo.locator.hasBackgroundPermission()
     }
 
     private fun saveCities(list: List<City>) {

@@ -22,6 +22,15 @@ class CityStore(context: Context) {
         }
     }
 
+    /** Replaces the city with the same id, or appends it. */
+    fun upsert(city: City): List<City> {
+        val list = load()
+        val index = list.indexOfFirst { it.id == city.id }
+        val result = if (index >= 0) list.toMutableList().also { it[index] = city } else list + city
+        save(result)
+        return result
+    }
+
     fun save(cities: List<City>) {
         val arr = JSONArray()
         cities.forEach {

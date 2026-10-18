@@ -16,6 +16,9 @@ data class City(
 ) {
     val isGps get() = id == GPS_ID
 
+    /** "Ma position · Grenoble" for the phone position, the plain name otherwise. */
+    val displayName get() = if (isGps && subtitle.isNotBlank()) "$name · $subtitle" else name
+
     companion object {
         const val GPS_ID = "gps"
     }
