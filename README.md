@@ -27,8 +27,14 @@ possibly later when the phone saves battery.
 
 ## Get the APK
 
-Every push builds the APK with GitHub Actions. Open the **Actions** tab, pick the latest successful run,
-download the `meteorite-debug-apk` artifact (a zip containing `app-debug.apk`) and install it on the phone.
+Every push to `main` builds the APK with GitHub Actions and publishes it as the single `latest`
+release (`Meteorite.apk`, titled "Build N"; N is also the APK version code). Download it from the
+repository's Releases page. Pull requests only upload the APK as a workflow artifact.
+
+In the app, the update button in the top bar compares the installed build with the latest release,
+downloads the new APK and opens Android's install screen (the phone asks once to allow installs
+from this app). The downloaded file is deleted the next time the updated app starts.
+Every build is signed with the same key (`app/debug.keystore`), so updates install over the old app.
 
 ## Build locally
 

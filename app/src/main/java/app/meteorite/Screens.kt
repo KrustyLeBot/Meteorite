@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -27,6 +28,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -86,6 +88,59 @@ fun MeteoRoot(vm: MeteoViewModel, onLocate: () -> Unit, onAllowBackground: () ->
         Screen.Search -> SearchScreen(vm, onLocate)
         is Screen.Detail -> DetailScreen(vm, screen.dayIndex)
     }
+    vm.update?.let { UpdateDialog(vm, it) }
+}
+
+@Composable
+private fun UpdateDialog(vm: MeteoViewModel, state: UpdateState) {
+    AlertDialog(
+        onDismissRequest = { vm.closeUpdate() },
+        title = { Text("Mise à jour") },
+        text = {
+            when (state) {
+                UpdateState.Checking -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(24.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("Recherche en cours…")
+                }
+
+                is UpdateState.UpToDate -> Text("Tu as la dernière version (build ${state.build}).")
+                is UpdateState.Available -> Text(
+                    "Mise à jour disponible : build ${state.release.build} " +
+                        "(tu as le build ${state.installed}).\n" +
+                        "Taille : environ ${state.release.sizeBytes / 1_000_000} Mo."
+                )
+
+                is UpdateState.Downloading -> Column {
+                    Text("Téléchargement… ${(state.progress * 100).toInt()} %")
+                    Spacer(Modifier.height(12.dp))
+                    LinearProgressIndicator(progress = { state.progress }, modifier = Modifier.fillMaxWidth())
+                }
+
+                is UpdateState.Failed -> Text(state.message)
+            }
+        },
+        confirmButton = {
+            when (state) {
+                is UpdateState.Available -> TextButton(onClick = { vm.downloadUpdate(state.release) }) {
+                    Text("Télécharger et installer")
+                }
+
+                is UpdateState.Failed -> TextButton(onClick = { vm.checkUpdate() }) { Text("Réessayer") }
+                is UpdateState.UpToDate -> TextButton(onClick = { vm.closeUpdate() }) { Text("OK") }
+                else -> Unit
+            }
+        },
+        dismissButton = {
+            if (state is UpdateState.Available || state is UpdateState.Downloading ||
+                state is UpdateState.Failed || state == UpdateState.Checking
+            ) {
+                TextButton(onClick = { vm.closeUpdate() }) {
+                    Text(if (state is UpdateState.Available) "Plus tard" else "Annuler")
+                }
+            }
+        },
+    )
 }
 
 // ---------------------------------------------------------------- Main
@@ -109,6 +164,9 @@ private fun MainScreen(vm: MeteoViewModel, onAllowBackground: () -> Unit) {
                         IconButton(onClick = { confirmDelete = true }) {
                             Icon(Icons.Default.Delete, contentDescription = "Supprimer la ville")
                         }
+                    }
+                    IconButton(onClick = { vm.checkUpdate() }) {
+                        Icon(Icons.Default.SystemUpdate, contentDescription = "Rechercher une mise à jour")
                     }
                     IconButton(onClick = { vm.openSearch() }) {
                         Icon(Icons.Default.Add, contentDescription = "Ajouter une ville")

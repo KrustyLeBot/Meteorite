@@ -5,6 +5,7 @@ import app.meteorite.data.CityStore
 import app.meteorite.data.ForecastCache
 import app.meteorite.data.Locator
 import app.meteorite.data.MyPosition
+import app.meteorite.data.Updater
 import app.meteorite.data.WeatherApi
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
@@ -14,13 +15,12 @@ class MeteoApp : Application() {
     val cityStore by lazy { CityStore(this) }
     val forecastCache by lazy { ForecastCache(this) }
     val locator by lazy { Locator(this) }
-    val api by lazy {
-        WeatherApi(
-            OkHttpClient.Builder()
-                .connectTimeout(15, TimeUnit.SECONDS)
-                .readTimeout(20, TimeUnit.SECONDS)
-                .build(),
-            forecastCache,
-        )
+    private val http by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .build()
     }
+    val api by lazy { WeatherApi(http, forecastCache) }
+    val updater by lazy { Updater(this, http) }
 }
