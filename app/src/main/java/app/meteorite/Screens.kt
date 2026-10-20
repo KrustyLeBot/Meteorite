@@ -21,6 +21,7 @@ import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -256,7 +257,11 @@ private fun CityContent(vm: MeteoViewModel, city: City) {
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                item { NowCard(city, forecast, state.loadedAt, vm.refreshErrors[city.id]) }
+                item {
+                    NowCard(city, forecast, state.loadedAt, vm.refreshErrors[city.id]) {
+                        vm.screen = Screen.Detail(0)
+                    }
+                }
                 itemsIndexed(forecast.days) { i, day ->
                     DayCard(day, today) { vm.screen = Screen.Detail(i) }
                 }
@@ -266,20 +271,27 @@ private fun CityContent(vm: MeteoViewModel, city: City) {
 }
 
 @Composable
-private fun NowCard(city: City, forecast: Forecast, savedAt: Long, refreshError: String?) {
+private fun NowCard(
+    city: City,
+    forecast: Forecast,
+    savedAt: Long,
+    refreshError: String?,
+    onClick: () -> Unit,
+) {
     val now = forecast.current
     Card(
-        Modifier.fillMaxWidth(),
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer,
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
         ),
     ) {
         Column(Modifier.padding(18.dp)) {
-            if (city.isGps && city.subtitle.isNotBlank()) {
-                Text("📍 ${city.subtitle}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(6.dp))
-            }
+            val place = if (city.isGps) "📍 ${city.subtitle.ifBlank { city.name }}" else city.name
+            Text(place, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("Maintenant", style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(weatherEmoji(now.code, now.isDay), fontSize = 60.sp)
                 Spacer(Modifier.width(16.dp))
@@ -310,11 +322,13 @@ private fun NowCard(city: City, forecast: Forecast, savedAt: Long, refreshError:
 }
 
 private fun dayRainText(day: Day): String {
-    val rain = dayRain(day.rainMm)
+    // Same levels as the hourly rows, so the day card and its detail always agree.
+    val rain = day.hours.maxOfOrNull { hourRain(it.rainMm) } ?: dayRain(day.rainMm)
     if (rain == Rain.NONE) return "☂️ ${rainLabel(rain)}"
+    val wetHours = day.hours.count { hourRain(it.rainMm) != Rain.NONE }
     val duration = when {
-        day.rainHours >= 20 -> " · toute la journée"
-        day.rainHours > 0 -> " · environ ${day.rainHours} h"
+        wetHours >= 20 -> " · toute la journée"
+        wetHours > 0 -> " · pendant environ $wetHours h"
         else -> ""
     }
     return "${rain.drops} ${rainLabel(rain)}$duration"
@@ -512,8 +526,17 @@ private fun DetailScreen(vm: MeteoViewModel, dayIndex: Int) {
             return@Scaffold
         }
         val now = forecast.current.time
+        val listState = rememberLazyListState()
+        // Today opens on the current hour (item 0 is the summary card, hours follow).
+        LaunchedEffect(dayIndex) {
+            if (day.date == now.toLocalDate()) {
+                val hour = day.hours.indexOfFirst { it.time.hour == now.hour }
+                if (hour >= 0) listState.scrollToItem(1 + maxOf(0, hour - 1))
+            }
+        }
         LazyColumn(
             Modifier.padding(padding),
+            state = listState,
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
