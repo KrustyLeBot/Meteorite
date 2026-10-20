@@ -35,16 +35,13 @@ fun rainLabel(rain: Rain) = when (rain) {
     Rain.HEAVY -> "Grosse pluie"
 }
 
-/** "Pluie modérée", or "Petite à grosse pluie" when the level changes during the day. */
-fun rainRangeLabel(min: Rain, max: Rain): String {
-    if (min == max) return rainLabel(max)
-    fun adjective(level: Rain) = when (level) {
-        Rain.LIGHT -> "petite"
-        Rain.MODERATE -> "modérée"
-        else -> "grosse"
-    }
-    return "${adjective(min).replaceFirstChar { it.uppercase() }} à ${adjective(max)} pluie"
-}
+/** "Pluie modérée", or "Petite pluie à grosse pluie" when the level changes. */
+fun rainRangeLabel(min: Rain, max: Rain) = rangeLabel(min, max, ::rainLabel)
+
+fun snowRangeLabel(min: Rain, max: Rain) = rangeLabel(min, max, ::snowLabel)
+
+private fun rangeLabel(min: Rain, max: Rain, label: (Rain) -> String) =
+    if (min == max) label(max) else "${label(min)} à ${label(max).replaceFirstChar { it.lowercase() }}"
 
 /** Snow is measured in centimetres; the same levels are reused for the wording. */
 fun daySnow(cm: Double) = when {
@@ -131,17 +128,19 @@ fun restOfDaySentence(hours: List<Hour>, now: LocalDateTime): String {
     val snowHours = hours.filter { hourSnow(it.snowCm) != Rain.NONE }
     val parts = listOfNotNull(
         span(rainHours, now) { h -> hourRain(h.rainMm) }
-            ?.let { (level, when_) -> "${level.drops} ${rainLabel(level)} $when_" },
+            ?.let { "${it.max.drops} ${rainRangeLabel(it.min, it.max)} ${it.text}" },
         span(snowHours, now) { h -> hourSnow(h.snowCm) }
-            ?.let { (level, when_) -> "❄️ ${snowLabel(level)} $when_" },
+            ?.let { "❄️ ${snowRangeLabel(it.min, it.max)} ${it.text}" },
     )
     return if (parts.isEmpty()) "Pas de pluie d'ici ce soir" else parts.joinToString("\n")
 }
 
-/** Worst level and the time span ("de 15 h à 18 h") of [wet] hours, or null when there are none. */
-private fun span(wet: List<Hour>, now: LocalDateTime, level: (Hour) -> Rain): Pair<Rain, String>? {
+private class Span(val min: Rain, val max: Rain, val text: String)
+
+/** Lowest and highest level and the time span ("de 15 h à 18 h") of [wet] hours, null when none. */
+private fun span(wet: List<Hour>, now: LocalDateTime, level: (Hour) -> Rain): Span? {
     if (wet.isEmpty()) return null
-    val worst = wet.maxOf(level)
+    val levels = wet.map(level)
     val first = wet.first().time.hour
     val end = wet.last().time.hour + 1
     val endText = if (end == 24) "minuit" else "$end h"
@@ -150,7 +149,7 @@ private fun span(wet: List<Hour>, now: LocalDateTime, level: (Hour) -> Rain): Pa
         first + 1 == end -> "vers $first h"
         else -> "de $first h à $endText"
     }
-    return worst to text
+    return Span(levels.min(), levels.max(), text)
 }
 
 private val clockTime = DateTimeFormatter.ofPattern("H:mm", Locale.FRENCH)
