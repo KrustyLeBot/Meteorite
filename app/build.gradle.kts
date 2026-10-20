@@ -12,8 +12,20 @@ android {
         applicationId = "app.meteorite"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
+        // Grows with every CI run so each new APK installs over the previous one.
+        versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
         versionName = "1.0"
+    }
+
+    // Fixed key committed on purpose: every build is signed the same way, so updates install over
+    // the existing app. It is only a debug key, not a secret.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {
