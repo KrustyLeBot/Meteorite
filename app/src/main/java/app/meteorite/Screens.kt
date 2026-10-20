@@ -262,8 +262,11 @@ private fun CityContent(vm: MeteoViewModel, city: City) {
                         vm.screen = Screen.Detail(0)
                     }
                 }
-                itemsIndexed(forecast.days) { i, day ->
-                    DayCard(day, today) { vm.screen = Screen.Detail(i) }
+                // Today is the "Maintenant" card above, so the list starts tomorrow.
+                forecast.days.forEachIndexed { i, day ->
+                    if (day.date != today) {
+                        item { DayCard(day, today) { vm.screen = Screen.Detail(i) } }
+                    }
                 }
             }
         }
@@ -323,15 +326,17 @@ private fun NowCard(
 
 private fun dayRainText(day: Day): String {
     // Same levels as the hourly rows, so the day card and its detail always agree.
-    val rain = day.hours.maxOfOrNull { hourRain(it.rainMm) } ?: dayRain(day.rainMm)
+    val wet = day.hours.map { hourRain(it.rainMm) }.filter { it != Rain.NONE }
+    if (wet.isEmpty() && day.hours.isNotEmpty()) return "☂️ ${rainLabel(Rain.NONE)}"
+    val rain = wet.maxOrNull() ?: dayRain(day.rainMm)
     if (rain == Rain.NONE) return "☂️ ${rainLabel(rain)}"
-    val wetHours = day.hours.count { hourRain(it.rainMm) != Rain.NONE }
+    val wetHours = wet.size
     val duration = when {
         wetHours >= 20 -> " · toute la journée"
         wetHours > 0 -> " · pendant environ $wetHours h"
         else -> ""
     }
-    return "${rain.drops} ${rainLabel(rain)}$duration"
+    return "${rain.drops} ${rainRangeLabel(wet.minOrNull() ?: rain, rain)}$duration"
 }
 
 /** Null when no snow is expected. */

@@ -35,6 +35,17 @@ fun rainLabel(rain: Rain) = when (rain) {
     Rain.HEAVY -> "Grosse pluie"
 }
 
+/** "Pluie modérée", or "Petite à grosse pluie" when the level changes during the day. */
+fun rainRangeLabel(min: Rain, max: Rain): String {
+    if (min == max) return rainLabel(max)
+    fun adjective(level: Rain) = when (level) {
+        Rain.LIGHT -> "petite"
+        Rain.MODERATE -> "modérée"
+        else -> "grosse"
+    }
+    return "${adjective(min).replaceFirstChar { it.uppercase() }} à ${adjective(max)} pluie"
+}
+
 /** Snow is measured in centimetres; the same levels are reused for the wording. */
 fun daySnow(cm: Double) = when {
     cm < 0.5 -> Rain.NONE
