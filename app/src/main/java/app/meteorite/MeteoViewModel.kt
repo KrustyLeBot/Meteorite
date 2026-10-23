@@ -35,7 +35,8 @@ sealed interface UpdateState {
 sealed interface ForecastState {
     data object Loading : ForecastState
     data class Error(val message: String) : ForecastState
-    data class Ready(val forecast: Forecast, val loadedAt: Long) : ForecastState
+    /** [source] is the place the forecast was downloaded for. */
+    data class Ready(val forecast: Forecast, val loadedAt: Long, val source: City) : ForecastState
 }
 
 class MeteoViewModel(app: Application) : AndroidViewModel(app) {
@@ -79,7 +80,7 @@ class MeteoViewModel(app: Application) : AndroidViewModel(app) {
     init {
         cities.forEach { city ->
             meteo.forecastCache.load(city)?.let {
-                forecasts[city.id] = ForecastState.Ready(it.forecast, it.savedAt)
+                forecasts[city.id] = ForecastState.Ready(it.forecast, it.savedAt, it.source)
             }
         }
     }
@@ -93,13 +94,14 @@ class MeteoViewModel(app: Application) : AndroidViewModel(app) {
         val city = selectedCity ?: return
         val old = forecasts[city.id]
         val fresh = old is ForecastState.Ready &&
-            System.currentTimeMillis() - old.loadedAt < STALE_MS
+            System.currentTimeMillis() - old.loadedAt < STALE_MS &&
+            old.source.lat == city.lat && old.source.lon == city.lon
         if ((fresh && !manual) || !inFlight.add(city.id)) return
         if (old !is ForecastState.Ready) forecasts[city.id] = ForecastState.Loading
         refreshing = true
         viewModelScope.launch {
             val result = try {
-                ForecastState.Ready(meteo.api.forecast(city), System.currentTimeMillis())
+                ForecastState.Ready(meteo.api.forecast(city), System.currentTimeMillis(), city)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -251,12 +253,8 @@ class MeteoViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun applyMyPosition(mine: City) {
         val index = cities.indexOfFirst { it.isGps }
-        val old = cities.getOrNull(index)
-        // A different place needs a new forecast; a newly found town name does not.
-        if (old == null || old.lat != mine.lat || old.lon != mine.lon) {
-            forecasts.remove(City.GPS_ID)
-            refreshErrors.remove(City.GPS_ID)
-        }
+        // The previous forecast stays on screen until the one for the new place arrives.
+        refreshErrors.remove(City.GPS_ID)
         saveCities(
             if (index >= 0) cities.toMutableList().also { it[index] = mine } else cities + mine
         )

@@ -34,7 +34,7 @@ class WeatherWidget : AppWidgetProvider() {
                 // Show the saved forecast right away, then try to refresh it.
                 val first = app.cityStore.load().firstOrNull()
                 val saved = first?.let { app.forecastCache.load(it) }
-                push(render(context, first, saved?.forecast, saved?.savedAt, null))
+                push(render(context, first, saved?.forecast, saved?.savedAt, null, saved?.source))
 
                 // "Ma position" follows the phone even when the app is closed.
                 var city = first
@@ -52,13 +52,13 @@ class WeatherWidget : AppWidgetProvider() {
                 if (city != null) {
                     val cached = if (city === first) saved else app.forecastCache.load(city)
                     if (city !== first) {
-                        push(render(context, city, cached?.forecast, cached?.savedAt, null))
+                        push(render(context, city, cached?.forecast, cached?.savedAt, null, cached?.source))
                     }
                     try {
                         val fresh = withTimeout(12_000) { app.api.forecast(city) }
-                        push(render(context, city, fresh, System.currentTimeMillis(), null))
+                        push(render(context, city, fresh, System.currentTimeMillis(), null, city))
                     } catch (e: Exception) {
-                        push(render(context, city, cached?.forecast, cached?.savedAt, e.javaClass.simpleName))
+                        push(render(context, city, cached?.forecast, cached?.savedAt, e.javaClass.simpleName, cached?.source))
                     }
                 }
             } finally {
@@ -74,6 +74,7 @@ class WeatherWidget : AppWidgetProvider() {
         forecast: Forecast?,
         savedAt: Long?,
         failure: String?,
+        source: City?,
     ): RemoteViews {
         val views = RemoteViews(context.packageName, R.layout.widget_weather)
         views.setOnClickPendingIntent(
@@ -90,9 +91,11 @@ class WeatherWidget : AppWidgetProvider() {
             return views
         }
         // The pin alone marks the live position; "Ma position" is kept only while the town is unknown.
+        // Name of the place the shown forecast is for (the previous one right after a move).
+        val shown = source ?: city
         views.setTextViewText(
             R.id.w_city,
-            if (city.isGps) "📍 ${city.subtitle.ifBlank { city.name }}" else city.name
+            if (shown.isGps) "📍 ${shown.subtitle.ifBlank { shown.name }}" else shown.name
         )
         if (forecast == null || savedAt == null) {
             views.setTextViewText(R.id.w_desc, if (failure == null) "Chargement…" else "Pas encore de météo")

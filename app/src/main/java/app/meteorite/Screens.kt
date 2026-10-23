@@ -258,7 +258,7 @@ private fun CityContent(vm: MeteoViewModel, city: City) {
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 item {
-                    NowCard(city, forecast, state.loadedAt, vm.refreshErrors[city.id]) {
+                    NowCard(city, state.source, forecast, state.loadedAt, vm.refreshErrors[city.id]) {
                         vm.screen = Screen.Detail(0)
                     }
                 }
@@ -276,6 +276,7 @@ private fun CityContent(vm: MeteoViewModel, city: City) {
 @Composable
 private fun NowCard(
     city: City,
+    source: City,
     forecast: Forecast,
     savedAt: Long,
     refreshError: String?,
@@ -291,7 +292,9 @@ private fun NowCard(
         ),
     ) {
         Column(Modifier.padding(18.dp)) {
-            val place = if (city.isGps) "📍 ${city.subtitle.ifBlank { city.name }}" else city.name
+            // The place the shown forecast is for (the previous one right after "Ma position" moved).
+            val place = if (source.isGps) "📍 ${source.subtitle.ifBlank { source.name }}" else source.name
+            val outdatedPlace = source.lat != city.lat || source.lon != city.lon
             Text(place, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text("Maintenant", style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(8.dp))
@@ -317,7 +320,9 @@ private fun NowCard(
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                updatedText(savedAt) + (refreshError?.let { " · actualisation impossible $it" } ?: ""),
+                updatedText(savedAt) +
+                    (if (outdatedPlace) " · ancienne position" else "") +
+                    (refreshError?.let { " · actualisation impossible $it" } ?: ""),
                 style = MaterialTheme.typography.bodySmall,
             )
         }

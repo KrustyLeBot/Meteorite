@@ -2,7 +2,6 @@ package app.meteorite.data
 
 import android.content.Context
 import org.json.JSONObject
-import kotlin.math.abs
 
 /** Last downloaded forecast of each city (raw API JSON), so the app and widget never start empty. */
 class ForecastCache(context: Context) {
@@ -12,6 +11,7 @@ class ForecastCache(context: Context) {
         val entry = JSONObject()
             .put("lat", city.lat)
             .put("lon", city.lon)
+            .put("name", city.subtitle)
             .put("at", System.currentTimeMillis())
             .put("data", json)
         prefs.edit().putString(city.id, entry.toString()).apply()
@@ -21,13 +21,16 @@ class ForecastCache(context: Context) {
         val raw = prefs.getString(city.id, null) ?: return null
         return try {
             val entry = JSONObject(raw)
-            // A "Ma position" that moved must not reuse the old place's forecast.
-            if (abs(entry.getDouble("lat") - city.lat) > 1e-6 ||
-                abs(entry.getDouble("lon") - city.lon) > 1e-6
-            ) return null
+            // After a move, the forecast of the previous place is still returned (better than
+            // nothing); `source` tells which place it is for.
             Cached(
                 WeatherApi.parseForecast(JSONObject(entry.getString("data"))),
                 entry.getLong("at"),
+                city.copy(
+                    subtitle = entry.optString("name"),
+                    lat = entry.getDouble("lat"),
+                    lon = entry.getDouble("lon"),
+                ),
             )
         } catch (e: Exception) {
             null

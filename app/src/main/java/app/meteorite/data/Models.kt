@@ -58,8 +58,11 @@ data class Day(
     val hours: List<Hour>,
 )
 
-/** A forecast kept on the phone, with the time it was downloaded (epoch millis). */
-data class Cached(val forecast: Forecast, val savedAt: Long)
+/**
+ * A forecast kept on the phone, with the time it was downloaded (epoch millis) and the place it
+ * was downloaded for (which differs from the city's current place when "Ma position" moved).
+ */
+data class Cached(val forecast: Forecast, val savedAt: Long, val source: City)
 
 data class Forecast(val current: Current, val days: List<Day>, val utcOffsetSeconds: Int) {
     /**
