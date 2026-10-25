@@ -21,10 +21,10 @@ jobs:
           java-version: "17"
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-      - name: Build debug APK
+      - name: Build release APK
         run: |
           set -o pipefail
-          ./gradlew assembleDebug --console=plain 2>&1 | tee build.log
+          ./gradlew assembleRelease --console=plain 2>&1 | tee build.log
       - name: Show build errors
         if: failure()
         run: |
@@ -32,14 +32,14 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: meteorite-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: meteorite-apk
+          path: app/build/outputs/apk/release/app-release.apk
       - name: Publish release
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk Meteorite.apk
+          cp app/build/outputs/apk/release/app-release.apk Meteorite.apk
           gh release delete latest --cleanup-tag --yes || true
           gh release create latest Meteorite.apk --target "$GITHUB_SHA" --latest \
             --title "Build $GITHUB_RUN_NUMBER" \

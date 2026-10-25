@@ -41,5 +41,5 @@ Every build is signed with the same key (`app/debug.keystore`), so updates insta
 JDK 17 and the Android SDK 35 are required:
 
 ```
-./gradlew assembleDebug
+./gradlew assembleRelease
 ```
