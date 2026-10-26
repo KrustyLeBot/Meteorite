@@ -7,10 +7,18 @@ import app.meteorite.data.Locator
 import app.meteorite.data.MyPosition
 import app.meteorite.data.WeatherApi
 import app.meteorite.suite.SuiteUpdater
+import app.meteorite.widget.WeatherWidget
+import app.meteorite.widget.WidgetWorker
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
 class MeteoApp : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        // Widgets placed before the 15-minute refresh existed get it too.
+        if (WeatherWidget.isPlaced(this)) WidgetWorker.schedule(this)
+    }
+
     val position by lazy { MyPosition(locator, api) }
     val cityStore by lazy { CityStore(this) }
     val forecastCache by lazy { ForecastCache(this) }

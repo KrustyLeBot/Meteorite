@@ -16,137 +16,102 @@ import app.meteorite.restOfDaySentence
 import app.meteorite.updatedText
 import app.meteorite.weatherEmoji
 import app.meteorite.weatherLabel
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeout
 
 /** Home-screen widget: weather now and the next hours for the first saved city. */
 class WeatherWidget : AppWidgetProvider() {
 
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        val pending = goAsync()
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val app = context.applicationContext as MeteoApp
-                fun push(views: RemoteViews) = ids.forEach { manager.updateAppWidget(it, views) }
-
-                // Show the saved forecast right away, then try to refresh it.
-                // An unreadable cities.json is reported by the app; the widget just shows nothing.
-                val first = runCatching { app.cityStore.load() }.getOrNull()?.firstOrNull()
-                val saved = first?.let { app.forecastCache.load(it) }
-                push(render(context, first, saved?.forecast, saved?.savedAt, null, saved?.source))
-
-                // "Ma position" follows the phone even when the app is closed.
-                var city = first
-                if (first != null && first.isGps) {
-                    val moved = try {
-                        withTimeout(15_000) { app.position.refreshed(first) }
-                    } catch (e: Exception) {
-                        null
-                    }
-                    if (moved != null) {
-                        runCatching { app.cityStore.upsert(moved) }
-                        city = moved
-                    }
-                }
-                if (city != null && city.hasPosition) {
-                    val cached = if (city === first) saved else app.forecastCache.load(city)
-                    if (city !== first) {
-                        push(render(context, city, cached?.forecast, cached?.savedAt, null, cached?.source))
-                    }
-                    try {
-                        val fresh = withTimeout(12_000) { app.api.forecast(city) }
-                        push(render(context, city, fresh, System.currentTimeMillis(), null, city))
-                    } catch (e: Exception) {
-                        push(render(context, city, cached?.forecast, cached?.savedAt, e.javaClass.simpleName, cached?.source))
-                    }
-                }
-            } finally {
-                pending.finish()
-            }
-        }
+        // The refresh runs as a background job: it may wait for the network and try again, which a
+        // broadcast receiver cannot.
+        WidgetWorker.schedule(context) // also keeps WorkManager's receivers on, see WidgetWorker
+        WidgetWorker.refreshNow(context)
     }
 
-    /** [failure] is the name of the error when the last refresh did not work. */
-    private fun render(
-        context: Context,
-        city: City?,
-        forecast: Forecast?,
-        savedAt: Long?,
-        failure: String?,
-        source: City?,
-    ): RemoteViews {
-        val views = RemoteViews(context.packageName, R.layout.widget_weather)
-        views.setOnClickPendingIntent(
-            R.id.widget_root,
-            PendingIntent.getActivity(
-                context, 0, Intent(context, MainActivity::class.java),
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-            )
-        )
-        clear(views)
-        if (city == null) {
-            views.setTextViewText(R.id.w_city, "Météorite")
-            views.setTextViewText(R.id.w_desc, "Ouvre l'application pour ajouter une ville")
-            return views
-        }
-        // The pin alone marks the live position; "Ma position" is kept only while the town is unknown.
-        // Name of the place the shown forecast is for (the previous one right after a move).
-        val shown = source ?: city
-        views.setTextViewText(
-            R.id.w_city,
-            if (shown.isGps) "📍 ${shown.subtitle.ifBlank { shown.name }}" else shown.name
-        )
-        if (forecast == null || savedAt == null) {
-            views.setTextViewText(R.id.w_desc, if (failure == null) "Chargement…" else "Pas encore de météo")
-            if (failure != null) views.setTextViewText(R.id.w_updated, "Erreur : $failure")
-            return views
-        }
-        val rolled = forecast.rolled()
-        val now = rolled.current
-        views.setInt(R.id.widget_root, "setBackgroundResource", background(now.code, now.isDay))
-        views.setTextViewText(R.id.w_emoji, weatherEmoji(now.code, now.isDay))
-        views.setTextViewText(R.id.w_temp, "${now.temp}°")
-        views.setTextViewText(R.id.w_desc, weatherLabel(now.code))
-        views.setTextViewText(
-            R.id.w_updated,
-            updatedText(savedAt) + (failure?.let { " · actualisation impossible" } ?: "")
-        )
-        views.setTextViewText(R.id.w_rain, restOfDaySentence(rolled.todayRemaining(), now.time))
-        // Every second hour, so six slots cover the next twelve hours.
-        rolled.upcoming().filterIndexed { i, _ -> i % 2 == 1 }.take(SLOTS.size)
-            .forEachIndexed { i, hour ->
-                val (h, e, t) = SLOTS[i]
-                views.setTextViewText(h, "${hour.time.hour} h")
-                views.setTextViewText(e, weatherEmoji(hour.code, hour.isDay))
-                views.setTextViewText(t, "${hour.temp}°")
-            }
-        return views
-    }
+    override fun onEnabled(context: Context) = WidgetWorker.schedule(context)
 
-    /** Background gradient matching the current weather. */
-    private fun background(code: Int, isDay: Boolean) = when {
-        code in 95..99 -> R.drawable.widget_bg_storm
-        code in 71..77 || code == 85 || code == 86 -> R.drawable.widget_bg_snow
-        code in 51..67 || code in 80..82 -> R.drawable.widget_bg_rain
-        !isDay -> R.drawable.widget_bg_night
-        code == 3 || code == 45 || code == 48 -> R.drawable.widget_bg_cloudy
-        else -> R.drawable.widget_bg_sunny
-    }
-
-    private fun clear(views: RemoteViews) {
-        listOf(R.id.w_emoji, R.id.w_temp, R.id.w_city, R.id.w_desc, R.id.w_updated, R.id.w_rain).forEach {
-            views.setTextViewText(it, "")
-        }
-        SLOTS.forEach { (h, e, t) ->
-            views.setTextViewText(h, "")
-            views.setTextViewText(e, "")
-            views.setTextViewText(t, "")
-        }
-    }
+    override fun onDisabled(context: Context) = WidgetWorker.cancel(context)
 
     companion object {
+        /** [failure] is the name of the error when the last refresh did not work. */
+        private fun render(
+            context: Context,
+            city: City?,
+            forecast: Forecast?,
+            savedAt: Long?,
+            failure: String?,
+            source: City?,
+        ): RemoteViews {
+            val views = RemoteViews(context.packageName, R.layout.widget_weather)
+            views.setOnClickPendingIntent(
+                R.id.widget_root,
+                PendingIntent.getActivity(
+                    context, 0, Intent(context, MainActivity::class.java),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
+            )
+            clear(views)
+            if (city == null) {
+                views.setTextViewText(R.id.w_city, "Météorite")
+                views.setTextViewText(R.id.w_desc, "Ouvre l'application pour ajouter une ville")
+                return views
+            }
+            // The pin alone marks the live position; "Ma position" is kept only while the town is unknown.
+            // Name of the place the shown forecast is for (the previous one right after a move).
+            val shown = source ?: city
+            views.setTextViewText(
+                R.id.w_city,
+                if (shown.isGps) "📍 ${shown.subtitle.ifBlank { shown.name }}" else shown.name
+            )
+            if (forecast == null || savedAt == null) {
+                views.setTextViewText(R.id.w_desc, if (failure == null) "Chargement…" else "Pas encore de météo")
+                if (failure != null) views.setTextViewText(R.id.w_updated, "Erreur : $failure")
+                return views
+            }
+            val rolled = forecast.rolled()
+            val now = rolled.current
+            views.setInt(R.id.widget_root, "setBackgroundResource", background(now.code, now.isDay))
+            views.setTextViewText(R.id.w_emoji, weatherEmoji(now.code, now.isDay))
+            views.setTextViewText(R.id.w_temp, "${now.temp}°")
+            views.setTextViewText(R.id.w_desc, weatherLabel(now.code))
+            views.setTextViewText(
+                R.id.w_updated,
+                updatedText(savedAt) + (failure?.let { " · actualisation impossible" } ?: "")
+            )
+            views.setTextViewText(R.id.w_rain, restOfDaySentence(rolled.todayRemaining(), now.time))
+            // Every second hour, so six slots cover the next twelve hours.
+            rolled.upcoming().filterIndexed { i, _ -> i % 2 == 1 }.take(SLOTS.size)
+                .forEachIndexed { i, hour ->
+                    val (h, e, t) = SLOTS[i]
+                    views.setTextViewText(h, "${hour.time.hour} h")
+                    views.setTextViewText(e, weatherEmoji(hour.code, hour.isDay))
+                    views.setTextViewText(t, "${hour.temp}°")
+                }
+            return views
+        }
+
+        /** Background gradient matching the current weather. */
+        private fun background(code: Int, isDay: Boolean) = when {
+            code in 95..99 -> R.drawable.widget_bg_storm
+            code in 71..77 || code == 85 || code == 86 -> R.drawable.widget_bg_snow
+            code in 51..67 || code in 80..82 -> R.drawable.widget_bg_rain
+            !isDay -> R.drawable.widget_bg_night
+            code == 3 || code == 45 || code == 48 -> R.drawable.widget_bg_cloudy
+            else -> R.drawable.widget_bg_sunny
+        }
+
+        private fun clear(views: RemoteViews) {
+            listOf(R.id.w_emoji, R.id.w_temp, R.id.w_city, R.id.w_desc, R.id.w_updated, R.id.w_rain).forEach {
+                views.setTextViewText(it, "")
+            }
+            SLOTS.forEach { (h, e, t) ->
+                views.setTextViewText(h, "")
+                views.setTextViewText(e, "")
+                views.setTextViewText(t, "")
+            }
+        }
+
         private val SLOTS = listOf(
             Triple(R.id.s0_h, R.id.s0_e, R.id.s0_t),
             Triple(R.id.s1_h, R.id.s1_e, R.id.s1_t),
@@ -155,6 +120,56 @@ class WeatherWidget : AppWidgetProvider() {
             Triple(R.id.s4_h, R.id.s4_e, R.id.s4_t),
             Triple(R.id.s5_h, R.id.s5_e, R.id.s5_t),
         )
+
+        /**
+         * Shows the saved forecast, then downloads a fresh one. Returns false when the download failed;
+         * "actualisation impossible" only appears once the forecast shown is more than an hour old.
+         */
+        suspend fun refresh(context: Context): Boolean {
+            val app = context.applicationContext as MeteoApp
+            val manager = AppWidgetManager.getInstance(context)
+            val ids = manager.getAppWidgetIds(ComponentName(context, WeatherWidget::class.java))
+            if (ids.isEmpty()) return true
+            fun push(views: RemoteViews) = ids.forEach { manager.updateAppWidget(it, views) }
+
+            // An unreadable cities.json is reported by the app; the widget just shows nothing.
+            val first = runCatching { app.cityStore.load() }.getOrNull()?.firstOrNull()
+            val saved = first?.let { app.forecastCache.load(it) }
+            push(render(context, first, saved?.forecast, saved?.savedAt, null, saved?.source))
+
+            // "Ma position" follows the phone even when the app is closed.
+            var city = first
+            if (first != null && first.isGps) {
+                val moved = try {
+                    withTimeout(20_000) { app.position.refreshed(first) }
+                } catch (e: Exception) {
+                    null
+                }
+                if (moved != null) {
+                    runCatching { app.cityStore.upsert(moved) }
+                    city = moved
+                }
+            }
+            if (city == null || !city.hasPosition) return true
+            val cached = if (city === first) saved else app.forecastCache.load(city)
+            if (city !== first) push(render(context, city, cached?.forecast, cached?.savedAt, null, cached?.source))
+            return try {
+                val fresh = withTimeout(60_000) { app.api.forecast(city) }
+                push(render(context, city, fresh, System.currentTimeMillis(), null, city))
+                true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val stale = cached == null || System.currentTimeMillis() - cached.savedAt > STALE_MS
+                push(render(context, city, cached?.forecast, cached?.savedAt, if (stale) e.javaClass.simpleName else null, cached?.source))
+                false
+            }
+        }
+
+        private const val STALE_MS = 60 * 60 * 1000L
+
+        fun isPlaced(context: Context): Boolean =
+            AppWidgetManager.getInstance(context).getAppWidgetIds(ComponentName(context, WeatherWidget::class.java)).isNotEmpty()
 
         /** Asks every placed widget to refresh (no-op when none is placed). */
         fun requestUpdate(context: Context) {

@@ -202,9 +202,13 @@ class MeteoViewModel(app: Application) : AndroidViewModel(app) {
             when {
                 // The city moved while loading (position update): load again.
                 cities.none { it == city } -> ensureLoaded()
-                // Keep showing the saved forecast and say the refresh failed.
-                result is ForecastState.Error && old is ForecastState.Ready ->
-                    refreshErrors[city.id] = result.message.substringAfterLast("\n")
+                // Keep showing the saved forecast; say the refresh failed when it was asked for or the
+                // forecast is getting old, not for every automatic attempt.
+                result is ForecastState.Error && old is ForecastState.Ready -> {
+                    if (manual || System.currentTimeMillis() - old.loadedAt > OLD_MS) {
+                        refreshErrors[city.id] = result.message.substringAfterLast("\n")
+                    }
+                }
                 else -> {
                     refreshErrors.remove(city.id)
                     forecasts[city.id] = result
@@ -357,6 +361,7 @@ class MeteoViewModel(app: Application) : AndroidViewModel(app) {
 
     private companion object {
         const val STALE_MS = 30 * 60 * 1000L
+        const val OLD_MS = 60 * 60 * 1000L
 
         /**
          * Proton Drive's copy is already here (or there is no Synchrotron): the private list can move to

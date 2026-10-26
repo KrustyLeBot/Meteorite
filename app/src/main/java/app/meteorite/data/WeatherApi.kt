@@ -1,5 +1,6 @@
 package app.meteorite.data
 
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Call
 import okhttp3.Callback
@@ -85,7 +86,22 @@ class WeatherApi(private val client: OkHttpClient, private val cache: ForecastCa
         return forecast
     }
 
-    private suspend fun get(url: HttpUrl, userAgent: String? = null): JSONObject =
+    /**
+     * Phones often get the network back slowly (waking from sleep, switching networks): a failed
+     * request is tried again after 2 s and 5 s before giving up.
+     */
+    private suspend fun get(url: HttpUrl, userAgent: String? = null): JSONObject {
+        for (wait in RETRY_DELAYS_MS) {
+            try {
+                return getOnce(url, userAgent)
+            } catch (e: IOException) {
+                delay(wait)
+            }
+        }
+        return getOnce(url, userAgent)
+    }
+
+    private suspend fun getOnce(url: HttpUrl, userAgent: String? = null): JSONObject =
         suspendCancellableCoroutine { cont ->
         val request = Request.Builder().url(url)
             .apply { userAgent?.let { header("User-Agent", it) } }
@@ -116,6 +132,7 @@ class WeatherApi(private val client: OkHttpClient, private val cache: ForecastCa
     companion object {
         /** Nominatim requires an identifying User-Agent. */
         private const val USER_AGENT = "Meteorite/1.0 (Android weather app)"
+        private val RETRY_DELAYS_MS = listOf(2_000L, 5_000L)
 
         fun parseForecast(json: JSONObject): Forecast {
             val c = json.getJSONObject("current")
