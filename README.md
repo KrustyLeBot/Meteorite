@@ -20,23 +20,18 @@ Weather and city search come from [Open-Meteo](https://open-meteo.com/); the tow
 position comes from OpenStreetMap Nominatim. Both are free, with no account and no API key.
 Cities are stored in `Documents/Meteorite/cities.json` (`{"format_version": 1, "cities": [...]}`,
 written atomically through a `.tmp` file). That folder needs the "all files access" permission,
-which the app only asks for when you set up the Proton Drive sync; until then the list stays in the
-app's private storage. "Ma position" is only a placeholder in the file: its coordinates belong to
-the phone and stay private, so moving around never rewrites the synced file. An unreadable file is
-reported in the app and never overwritten.
+which the app asks for (banner) only when Synchrotron is installed; until then the list stays in
+the app's private storage. "Ma position" is only a placeholder in the file: its coordinates belong
+to the phone and stay private, so moving around never rewrites the synced file. An unreadable file
+is reported in the app and never overwritten.
 
 ## Proton Drive sync (Synchrotron)
 
-When [Synchrotron](https://github.com/KrustyLeBot/Synchrotron) is installed, the app offers to sync
-`Documents/Meteorite` with `Apps/Meteorite` on Proton Drive (newer file wins, every 6 hours and on
-every change). Each time the app opens it asks Synchrotron for a sync; the city list is read-only
-while it runs and is re-read afterwards. On a new phone, the private list moves to the folder only
-after that first sync, merged with the saved one, so a fresh install never replaces your cities.
-
-"Ma position" follows the phone: every minute while the app is open, and every ~30 minutes through
-the widget even when the app is closed. The latter needs the "Toujours" location permission
-(the app shows a banner to grant it). The widget refreshes about every 30 minutes (Android's minimum),
-possibly later when the phone saves battery.
+The folder is set up in [Synchrotron](https://github.com/KrustyLeBot/Synchrotron) (add
+`Documents/Meteorite`, e.g. with `Apps/Meteorite` on Proton Drive); the app itself has no sync
+settings. Each time it opens it asks Synchrotron for a sync; the city list is read-only while it
+runs and is re-read afterwards. A list kept in private storage joins the folder only after a sync
+of a registered folder, merged with the saved one, so a fresh install never replaces your cities.
 
 ## Get the APK
 

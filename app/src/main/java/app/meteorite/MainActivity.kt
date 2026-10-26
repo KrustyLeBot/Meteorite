@@ -29,7 +29,7 @@ class MainActivity : ComponentActivity() {
         }
 
     private val storagePermission =
-        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { vm.onStorageAccessChecked() }
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { vm.syncOnOpen() }
 
     private val backgroundPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { vm.recheckPermissions() }
@@ -49,9 +49,7 @@ class MainActivity : ComponentActivity() {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                             backgroundPermission.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
                         }
-                    }, onSetUpSync = {
-                        if (!vm.setUpSync()) askStorageAccess()
-                    }, onLocate = {
+                    }, onAllowStorage = { askStorageAccess() }, onLocate = {
                         if (vm.hasLocationPermission()) {
                             vm.addMyLocation()
                         } else {
@@ -70,7 +68,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        vm.onStorageAccessChecked()
         vm.syncOnOpen()
         vm.ensureLoaded()
         vm.recheckPermissions()

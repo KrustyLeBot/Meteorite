@@ -40,11 +40,6 @@ class CityStore(private val context: Context) {
     private val file: File
         get() = if (hasStorageAccess() && !privateFile.exists()) File(publicDir, FILE_NAME) else privateFile
 
-    /** The user said "later" to the Synchrotron suggestion. */
-    var syncHintDismissed: Boolean
-        get() = prefs.getBoolean("sync_hint_dismissed", false)
-        set(v) = prefs.edit().putBoolean("sync_hint_dismissed", v).apply()
-
     /** Older versions kept the list in SharedPreferences. */
     private fun migrateLegacy() {
         if (prefs.contains(LEGACY_KEY)) {

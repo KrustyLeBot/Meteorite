@@ -84,10 +84,10 @@ import java.time.format.DateTimeFormatter
 private val clock = DateTimeFormatter.ofPattern("H:mm")
 
 @Composable
-fun MeteoRoot(vm: MeteoViewModel, onLocate: () -> Unit, onAllowBackground: () -> Unit, onSetUpSync: () -> Unit) {
+fun MeteoRoot(vm: MeteoViewModel, onLocate: () -> Unit, onAllowBackground: () -> Unit, onAllowStorage: () -> Unit) {
     BackHandler(enabled = vm.screen != Screen.Main) { vm.screen = Screen.Main }
     when (val screen = vm.screen) {
-        Screen.Main -> MainScreen(vm, onAllowBackground, onLocate, onSetUpSync)
+        Screen.Main -> MainScreen(vm, onAllowBackground, onLocate, onAllowStorage)
         Screen.Search -> SearchScreen(vm, onLocate)
         is Screen.Detail -> DetailScreen(vm, screen.dayIndex)
     }
@@ -150,7 +150,7 @@ private fun UpdateDialog(vm: MeteoViewModel, state: UpdateState) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MainScreen(vm: MeteoViewModel, onAllowBackground: () -> Unit, onLocate: () -> Unit, onSetUpSync: () -> Unit) {
+private fun MainScreen(vm: MeteoViewModel, onAllowBackground: () -> Unit, onLocate: () -> Unit, onAllowStorage: () -> Unit) {
     val city = vm.selectedCity
     var confirmDelete by remember { mutableStateOf(false) }
 
@@ -185,10 +185,9 @@ private fun MainScreen(vm: MeteoViewModel, onAllowBackground: () -> Unit, onLoca
                 LinearProgressIndicator(Modifier.fillMaxWidth())
             }
             vm.notice?.let { Banner(it) }
-            if (vm.offerSyncSetup) {
-                Banner("Retrouve tes villes sur tous tes appareils avec Proton Drive.") {
-                    TextButton(onClick = onSetUpSync) { Text("Configurer") }
-                    TextButton(onClick = { vm.dismissSyncSetup() }) { Text("Plus tard") }
+            if (vm.needsStorageAccess) {
+                Banner("Autorise l'accès aux fichiers pour que Synchrotron sauvegarde tes villes (Documents/Meteorite).") {
+                    TextButton(onClick = onAllowStorage) { Text("Autoriser") }
                 }
             }
             if (city == null) {

@@ -88,11 +88,9 @@ class MeteoViewModel(app: Application) : AndroidViewModel(app) {
     /** A sync is running: the city list is read-only until it ends (forecasts still load). */
     var syncing by mutableStateOf(false)
         private set
-    /** Synchrotron is installed but does not sync the Meteorite folder yet: offer to set it up. */
-    var offerSyncSetup by mutableStateOf(false)
+    /** Synchrotron is installed but the app may not write `Documents/Meteorite` yet: ask for it. */
+    var needsStorageAccess by mutableStateOf(false)
         private set
-    /** "Configurer" was tapped before file access was granted: finish once it is. */
-    private var setupPending = false
     private var stopSync: (() -> Unit)? = null
 
     val selectedCity get() = cities.getOrNull(selected)
@@ -141,10 +139,10 @@ class MeteoViewModel(app: Application) : AndroidViewModel(app) {
     /** Asks Synchrotron for a sync so the cities are up to date when the app opens. */
     fun syncOnOpen() {
         if (syncing) return
-        if (!meteo.cityStore.hasStorageAccess()) {
-            offerSyncSetup = SynchrotronClient.isInstalled(meteo) && !meteo.cityStore.syncHintDismissed
-            return
-        }
+        needsStorageAccess = !meteo.cityStore.hasStorageAccess() && SynchrotronClient.isInstalled(meteo)
+        if (!meteo.cityStore.hasStorageAccess()) return
+        // So the folder can be picked in Synchrotron before the first city is saved there.
+        java.io.File(meteo.cityStore.syncPath).mkdirs()
         stopSync?.invoke()
         stopSync = SynchrotronClient.syncOnOpen(meteo, meteo.cityStore.syncPath) { state ->
             when (state) {
@@ -159,7 +157,6 @@ class MeteoViewModel(app: Application) : AndroidViewModel(app) {
                 is SyncState.Skipped -> {
                     syncing = false
                     if (state.reason in SKIPS_WITHOUT_REMOTE_DATA && moveToFolder()) reloadCities()
-                    offerSyncSetup = state.reason == SkipReason.NOT_REGISTERED && !meteo.cityStore.syncHintDismissed
                     if (state.reason == SkipReason.NEEDS_SETUP) show("Termine la configuration dans Synchrotron")
                 }
             }
@@ -171,35 +168,6 @@ class MeteoViewModel(app: Application) : AndroidViewModel(app) {
     } catch (e: Exception) {
         storeError = e.message
         false
-    }
-
-    /**
-     * Registers `Documents/Meteorite` in Synchrotron. Without file access it returns false and the
-     * caller opens the permission screen; [onStorageAccessChecked] finishes the setup on return.
-     */
-    fun setUpSync(): Boolean {
-        if (!meteo.cityStore.hasStorageAccess()) {
-            setupPending = true
-            return false
-        }
-        setupPending = false
-        offerSyncSetup = false
-        // The private list moves to the folder after the first sync (CityStore.moveToFolder).
-        SynchrotronClient.registerFolder(
-            meteo, meteo.cityStore.syncPath, "Météorite",
-            remotePath = "Apps/Meteorite", conflictPolicy = "NEWER", intervalMinutes = 360, watchChanges = true,
-            exclusions = listOf("*.tmp"),
-        )
-        return true
-    }
-
-    fun onStorageAccessChecked() {
-        if (setupPending && meteo.cityStore.hasStorageAccess()) setUpSync()
-    }
-
-    fun dismissSyncSetup() {
-        offerSyncSetup = false
-        meteo.cityStore.syncHintDismissed = true
     }
 
     /** True when the list cannot be changed now (sync running or unreadable file), with the reason shown. */
@@ -442,7 +410,11 @@ class MeteoViewModel(app: Application) : AndroidViewModel(app) {
     private companion object {
         const val STALE_MS = 30 * 60 * 1000L
 
-        /** Nothing more is coming from Proton Drive: the private list can move to the synced folder. */
-        val SKIPS_WITHOUT_REMOTE_DATA = setOf(SkipReason.NOT_INSTALLED, SkipReason.NOT_REGISTERED, SkipReason.FRESH, SkipReason.COOLDOWN)
+        /**
+         * Proton Drive's copy is already here (or there is no Synchrotron): the private list can move to
+         * the synced folder. Not while the folder is unregistered: the first sync after registering it
+         * would then push that list over the saved one.
+         */
+        val SKIPS_WITHOUT_REMOTE_DATA = setOf(SkipReason.NOT_INSTALLED, SkipReason.FRESH, SkipReason.COOLDOWN)
     }
 }
