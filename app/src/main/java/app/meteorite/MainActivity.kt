@@ -37,7 +37,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        (application as MeteoApp).updater.cleanup()
         // Keeps "Ma position" up to date while the app is on screen.
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) { vm.trackMyLocation() }
@@ -69,6 +68,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         vm.syncOnOpen()
+        vm.updates.checkOnOpen()
         vm.ensureLoaded()
         vm.recheckPermissions()
     }

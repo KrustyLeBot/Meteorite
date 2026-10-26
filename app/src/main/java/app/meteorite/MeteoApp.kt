@@ -5,8 +5,8 @@ import app.meteorite.data.CityStore
 import app.meteorite.data.ForecastCache
 import app.meteorite.data.Locator
 import app.meteorite.data.MyPosition
-import app.meteorite.data.Updater
 import app.meteorite.data.WeatherApi
+import app.meteorite.suite.SuiteUpdater
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -22,5 +22,5 @@ class MeteoApp : Application() {
             .build()
     }
     val api by lazy { WeatherApi(http, forecastCache) }
-    val updater by lazy { Updater(this, http) }
+    val updater by lazy { SuiteUpdater(this, "KrustyLeBot/Meteorite", "$packageName.fileprovider") }
 }

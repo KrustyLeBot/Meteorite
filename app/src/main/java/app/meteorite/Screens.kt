@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -29,7 +30,10 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -74,6 +78,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import app.meteorite.data.City
+import app.meteorite.suite.AboutSettings
+import app.meteorite.suite.ConfirmDialog
+import app.meteorite.suite.SuiteBanner
+import app.meteorite.suite.SuiteTopBar
+import app.meteorite.suite.SyncSettings
+import app.meteorite.suite.Tone
+import app.meteorite.suite.UpdateBanner
+import app.meteorite.suite.UpdateSettings
 import app.meteorite.data.Day
 import app.meteorite.data.Forecast
 import app.meteorite.data.Hour
@@ -90,60 +102,8 @@ fun MeteoRoot(vm: MeteoViewModel, onLocate: () -> Unit, onAllowBackground: () ->
         Screen.Main -> MainScreen(vm, onAllowBackground, onLocate, onAllowStorage)
         Screen.Search -> SearchScreen(vm, onLocate)
         is Screen.Detail -> DetailScreen(vm, screen.dayIndex)
+        Screen.Settings -> SettingsScreen(vm)
     }
-    vm.update?.let { UpdateDialog(vm, it) }
-}
-
-@Composable
-private fun UpdateDialog(vm: MeteoViewModel, state: UpdateState) {
-    AlertDialog(
-        onDismissRequest = { vm.closeUpdate() },
-        title = { Text("Mise à jour") },
-        text = {
-            when (state) {
-                UpdateState.Checking -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(Modifier.size(24.dp))
-                    Spacer(Modifier.width(12.dp))
-                    Text("Recherche en cours…")
-                }
-
-                is UpdateState.UpToDate -> Text("Tu as la dernière version (build ${state.build}).")
-                is UpdateState.Available -> Text(
-                    "Mise à jour disponible : build ${state.release.build} " +
-                        "(tu as le build ${state.installed}).\n" +
-                        "Taille : environ ${state.release.sizeBytes / 1_000_000} Mo."
-                )
-
-                is UpdateState.Downloading -> Column {
-                    Text("Téléchargement… ${(state.progress * 100).toInt()} %")
-                    Spacer(Modifier.height(12.dp))
-                    LinearProgressIndicator(progress = { state.progress }, modifier = Modifier.fillMaxWidth())
-                }
-
-                is UpdateState.Failed -> Text(state.message)
-            }
-        },
-        confirmButton = {
-            when (state) {
-                is UpdateState.Available -> TextButton(onClick = { vm.downloadUpdate(state.release) }) {
-                    Text("Télécharger et installer")
-                }
-
-                is UpdateState.Failed -> TextButton(onClick = { vm.checkUpdate() }) { Text("Réessayer") }
-                is UpdateState.UpToDate -> TextButton(onClick = { vm.closeUpdate() }) { Text("OK") }
-                else -> Unit
-            }
-        },
-        dismissButton = {
-            if (state is UpdateState.Available || state is UpdateState.Downloading ||
-                state is UpdateState.Failed || state == UpdateState.Checking
-            ) {
-                TextButton(onClick = { vm.closeUpdate() }) {
-                    Text(if (state is UpdateState.Available) "Plus tard" else "Annuler")
-                }
-            }
-        },
-    )
 }
 
 // ---------------------------------------------------------------- Main
@@ -157,9 +117,7 @@ private fun MainScreen(vm: MeteoViewModel, onAllowBackground: () -> Unit, onLoca
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                title = { Text("Météorite", fontWeight = FontWeight.Bold) },
-                actions = {
+            SuiteTopBar("Météorite") {
                     if (city != null) {
                         IconButton(onClick = { vm.ensureLoaded(manual = true) }) {
                             Icon(Icons.Default.Refresh, contentDescription = "Actualiser")
@@ -168,28 +126,25 @@ private fun MainScreen(vm: MeteoViewModel, onAllowBackground: () -> Unit, onLoca
                             Icon(Icons.Default.Delete, contentDescription = "Supprimer la ville")
                         }
                     }
-                    IconButton(onClick = { vm.checkUpdate() }) {
-                        Icon(Icons.Default.SystemUpdate, contentDescription = "Rechercher une mise à jour")
-                    }
                     IconButton(onClick = { vm.openSearch() }) {
                         Icon(Icons.Default.Add, contentDescription = "Ajouter une ville")
                     }
-                },
-            )
+                    IconButton(onClick = { vm.screen = Screen.Settings }) {
+                        Icon(Icons.Default.Settings, contentDescription = "Paramètres")
+                    }
+            }
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
-            vm.storeError?.let { Banner(it, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer) }
-            if (vm.syncing) {
-                Banner("Synchronisation avec Proton Drive… (villes en lecture seule)")
-                LinearProgressIndicator(Modifier.fillMaxWidth())
-            }
-            vm.notice?.let { Banner(it) }
+            vm.storeError?.let { SuiteBanner(it, tone = Tone.Error, title = "Villes illisibles", icon = Icons.Default.ErrorOutline) }
+            if (vm.syncing) SuiteBanner("Villes en lecture seule le temps de la synchro.", title = "Synchronisation avec Proton Drive", icon = Icons.Default.Sync, progress = -1f)
+            vm.notice?.let { SuiteBanner(it) }
             if (vm.needsStorageAccess) {
-                Banner("Autorise l'accès aux fichiers pour que Synchrotron sauvegarde tes villes (Documents/Meteorite).") {
+                SuiteBanner("Autorise l'accès aux fichiers pour que Synchrotron sauvegarde tes villes (Documents/Meteorite).", icon = Icons.Default.Folder) {
                     TextButton(onClick = onAllowStorage) { Text("Autoriser") }
                 }
             }
+            UpdateBanner(vm.updates)
             if (city == null) {
                 EmptyState(vm)
             } else {
@@ -210,17 +165,9 @@ private fun MainScreen(vm: MeteoViewModel, onAllowBackground: () -> Unit, onLoca
     }
 
     if (confirmDelete && city != null) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text("Supprimer ${city.name} ?") },
-            confirmButton = {
-                TextButton(onClick = { confirmDelete = false; vm.removeSelected() }) {
-                    Text("Supprimer")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDelete = false }) { Text("Annuler") }
-            },
+        ConfirmDialog(
+            "Supprimer ${city.name} ?", null, "Supprimer",
+            onConfirm = { vm.removeSelected() }, onDismiss = { confirmDelete = false }, destructive = true,
         )
     }
 }
@@ -512,43 +459,28 @@ private fun CityTabs(vm: MeteoViewModel) {
     }
 }
 
-/** Full-width strip under the top bar, shared by the sync, notice and error messages. */
-@Composable
-private fun Banner(
-    text: String,
-    container: Color = MaterialTheme.colorScheme.secondaryContainer,
-    content: Color = MaterialTheme.colorScheme.onSecondaryContainer,
-    actions: @Composable () -> Unit = {},
-) {
-    Row(
-        Modifier.fillMaxWidth().background(container).padding(start = 16.dp, end = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text, color = content, style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.weight(1f).padding(vertical = 10.dp),
-        )
-        CompositionLocalProvider(LocalContentColor provides content) { actions() }
-    }
-}
-
 @Composable
 private fun LocationBanner(onAllow: () -> Unit) {
-    Card(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-        ),
-    ) {
-        Column(Modifier.padding(14.dp)) {
-            Text(
-                "Pour que le widget suive tes déplacements même quand l'application est fermée, " +
-                    "autorise la position « Toujours ».",
-                style = MaterialTheme.typography.bodyMedium,
+    SuiteBanner(
+        "Pour que le widget suive tes déplacements même quand l'application est fermée, autorise la position « Toujours ».",
+        icon = Icons.Default.MyLocation,
+    ) { TextButton(onClick = onAllow) { Text("Autoriser") } }
+}
+
+// ---------------------------------------------------------------- Settings
+
+@Composable
+private fun SettingsScreen(vm: MeteoViewModel) {
+    Scaffold(topBar = { SuiteTopBar("Paramètres", onBack = { vm.screen = Screen.Main }) }) { padding ->
+        Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+            SyncSettings("Documents/Meteorite")
+            UpdateSettings(vm.updates)
+            AboutSettings(
+                "Météorite",
+                "Prévisions d'Open-Meteo et noms de lieux d'OpenStreetMap, sans compte ni publicité. " +
+                    "Le premier onglet est celui du widget.",
             )
-            Spacer(Modifier.height(8.dp))
-            Button(onClick = onAllow) { Text("Autoriser") }
+            Spacer(Modifier.height(32.dp))
         }
     }
 }
@@ -565,14 +497,7 @@ private fun DetailScreen(vm: MeteoViewModel, dayIndex: Int) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                title = { Text(day?.let { fullDayTitle(it.date) } ?: "", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = { vm.screen = Screen.Main }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
-                    }
-                },
-            )
+            SuiteTopBar(day?.let { fullDayTitle(it.date) } ?: "", onBack = { vm.screen = Screen.Main })
         },
     ) { padding ->
         if (forecast == null || day == null) {
@@ -689,14 +614,7 @@ private fun SearchScreen(vm: MeteoViewModel, onLocate: () -> Unit) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                title = { Text("Ajouter une ville", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = { vm.screen = Screen.Main }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
-                    }
-                },
-            )
+            SuiteTopBar("Ajouter une ville", onBack = { vm.screen = Screen.Main })
         },
     ) { padding ->
         Column(Modifier.padding(padding).padding(horizontal = 16.dp)) {

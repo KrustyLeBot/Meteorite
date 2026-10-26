@@ -11,7 +11,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.meteorite.data.City
 import app.meteorite.data.Forecast
-import app.meteorite.data.Updater
+import app.meteorite.suite.SuiteUpdates
 import app.meteorite.sync.SkipReason
 import app.meteorite.sync.SyncState
 import app.meteorite.sync.SynchrotronClient
@@ -25,14 +25,7 @@ sealed interface Screen {
     data object Main : Screen
     data object Search : Screen
     data class Detail(val dayIndex: Int) : Screen
-}
-
-sealed interface UpdateState {
-    data object Checking : UpdateState
-    data class UpToDate(val build: Long) : UpdateState
-    data class Available(val release: Updater.Release, val installed: Long) : UpdateState
-    data class Downloading(val progress: Float) : UpdateState
-    data class Failed(val message: String) : UpdateState
+    data object Settings : Screen
 }
 
 sealed interface ForecastState {
@@ -73,10 +66,7 @@ class MeteoViewModel(app: Application) : AndroidViewModel(app) {
     var searchMessage by mutableStateOf<String?>(null)
         private set
 
-    /** State of the update dialog; null when it is closed. */
-    var update by mutableStateOf<UpdateState?>(null)
-        private set
-    private var updateJob: Job? = null
+    val updates = SuiteUpdates(app, meteo.updater, viewModelScope)
 
     /** Short message shown in a banner for a few seconds. */
     var notice by mutableStateOf<String?>(null)
@@ -223,45 +213,6 @@ class MeteoViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun checkUpdate() {
-        updateJob?.cancel()
-        update = UpdateState.Checking
-        updateJob = viewModelScope.launch {
-            update = try {
-                val release = meteo.updater.latest()
-                val installed = meteo.updater.installedBuild()
-                if (release.build > installed) UpdateState.Available(release, installed)
-                else UpdateState.UpToDate(installed)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                UpdateState.Failed(describeUpdate(e))
-            }
-        }
-    }
-
-    /** Downloads the APK, then opens Android's install screen. */
-    fun downloadUpdate(release: Updater.Release) {
-        updateJob?.cancel()
-        update = UpdateState.Downloading(0f)
-        updateJob = viewModelScope.launch {
-            try {
-                val file = meteo.updater.download(release) { update = UpdateState.Downloading(it) }
-                meteo.updater.install(file)
-                update = null
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                update = UpdateState.Failed(describeUpdate(e))
-            }
-        }
-    }
-
-    fun closeUpdate() {
-        updateJob?.cancel()
-        update = null
-    }
-
     fun openSearch() {
         query = ""
         results = emptyList()
@@ -399,9 +350,6 @@ class MeteoViewModel(app: Application) : AndroidViewModel(app) {
         }
         WeatherWidget.requestUpdate(meteo)
     }
-
-    private fun describeUpdate(e: Exception) =
-        "Mise à jour impossible.\n(${e.javaClass.simpleName}: ${e.message})"
 
     private fun describe(e: Exception) =
         "Impossible de récupérer la météo. Vérifie ta connexion internet.\n" +
