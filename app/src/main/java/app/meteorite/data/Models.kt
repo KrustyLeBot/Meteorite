@@ -16,6 +16,9 @@ data class City(
 ) {
     val isGps get() = id == GPS_ID
 
+    /** False for "Ma position" synced from another phone and not located yet on this one. */
+    val hasPosition get() = !(isGps && lat == 0.0 && lon == 0.0)
+
     /** "Ma position · Grenoble" for the phone position, the plain name otherwise. */
     val displayName get() = if (isGps && subtitle.isNotBlank()) "$name · $subtitle" else name
 

@@ -39,6 +39,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -47,6 +48,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
@@ -82,10 +84,10 @@ import java.time.format.DateTimeFormatter
 private val clock = DateTimeFormatter.ofPattern("H:mm")
 
 @Composable
-fun MeteoRoot(vm: MeteoViewModel, onLocate: () -> Unit, onAllowBackground: () -> Unit) {
+fun MeteoRoot(vm: MeteoViewModel, onLocate: () -> Unit, onAllowBackground: () -> Unit, onSetUpSync: () -> Unit) {
     BackHandler(enabled = vm.screen != Screen.Main) { vm.screen = Screen.Main }
     when (val screen = vm.screen) {
-        Screen.Main -> MainScreen(vm, onAllowBackground)
+        Screen.Main -> MainScreen(vm, onAllowBackground, onLocate, onSetUpSync)
         Screen.Search -> SearchScreen(vm, onLocate)
         is Screen.Detail -> DetailScreen(vm, screen.dayIndex)
     }
@@ -148,7 +150,7 @@ private fun UpdateDialog(vm: MeteoViewModel, state: UpdateState) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MainScreen(vm: MeteoViewModel, onAllowBackground: () -> Unit) {
+private fun MainScreen(vm: MeteoViewModel, onAllowBackground: () -> Unit, onLocate: () -> Unit, onSetUpSync: () -> Unit) {
     val city = vm.selectedCity
     var confirmDelete by remember { mutableStateOf(false) }
 
@@ -177,6 +179,18 @@ private fun MainScreen(vm: MeteoViewModel, onAllowBackground: () -> Unit) {
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
+            vm.storeError?.let { Banner(it, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer) }
+            if (vm.syncing) {
+                Banner("Synchronisation avec Proton Drive… (villes en lecture seule)")
+                LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+            vm.notice?.let { Banner(it) }
+            if (vm.offerSyncSetup) {
+                Banner("Retrouve tes villes sur tous tes appareils avec Proton Drive.") {
+                    TextButton(onClick = onSetUpSync) { Text("Configurer") }
+                    TextButton(onClick = { vm.dismissSyncSetup() }) { Text("Plus tard") }
+                }
+            }
             if (city == null) {
                 EmptyState(vm)
             } else {
@@ -191,7 +205,7 @@ private fun MainScreen(vm: MeteoViewModel, onAllowBackground: () -> Unit) {
                 }
                 if (vm.cities.any { it.isGps } && !vm.backgroundOk) LocationBanner(onAllowBackground)
                 if (vm.refreshing) LinearProgressIndicator(Modifier.fillMaxWidth())
-                CityContent(vm, city)
+                CityContent(vm, city, onLocate)
             }
         }
     }
@@ -232,8 +246,21 @@ private fun EmptyState(vm: MeteoViewModel) {
 }
 
 @Composable
-private fun CityContent(vm: MeteoViewModel, city: City) {
+private fun CityContent(vm: MeteoViewModel, city: City, onLocate: () -> Unit) {
     LaunchedEffect(city) { vm.ensureLoaded() }
+
+    if (!city.hasPosition) {
+        Column(
+            Modifier.fillMaxSize().padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text("Position pas encore connue sur ce téléphone.", textAlign = TextAlign.Center)
+            Spacer(Modifier.height(16.dp))
+            Button(onClick = onLocate, enabled = !vm.locating) { Text("Me localiser") }
+        }
+        return
+    }
 
     when (val state = vm.forecasts[city.id]) {
         null, ForecastState.Loading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
@@ -483,6 +510,26 @@ private fun CityTabs(vm: MeteoViewModel) {
                 }
             }
         }
+    }
+}
+
+/** Full-width strip under the top bar, shared by the sync, notice and error messages. */
+@Composable
+private fun Banner(
+    text: String,
+    container: Color = MaterialTheme.colorScheme.secondaryContainer,
+    content: Color = MaterialTheme.colorScheme.onSecondaryContainer,
+    actions: @Composable () -> Unit = {},
+) {
+    Row(
+        Modifier.fillMaxWidth().background(container).padding(start = 16.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text, color = content, style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.weight(1f).padding(vertical = 10.dp),
+        )
+        CompositionLocalProvider(LocalContentColor provides content) { actions() }
     }
 }
 

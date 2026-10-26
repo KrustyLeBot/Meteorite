@@ -1,7 +1,10 @@
 package app.meteorite
 
 import android.Manifest
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -25,6 +28,9 @@ class MainActivity : ComponentActivity() {
             if (granted.values.any { it }) vm.addMyLocation() else vm.locationDenied()
         }
 
+    private val storagePermission =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { vm.onStorageAccessChecked() }
+
     private val backgroundPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { vm.recheckPermissions() }
 
@@ -43,6 +49,8 @@ class MainActivity : ComponentActivity() {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                             backgroundPermission.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
                         }
+                    }, onSetUpSync = {
+                        if (!vm.setUpSync()) askStorageAccess()
                     }, onLocate = {
                         if (vm.hasLocationPermission()) {
                             vm.addMyLocation()
@@ -62,7 +70,21 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        vm.onStorageAccessChecked()
+        vm.syncOnOpen()
         vm.ensureLoaded()
         vm.recheckPermissions()
+    }
+
+    /** `Documents/Meteorite` is shared with Synchrotron, hence "all files access" (a plain permission before Android 11). */
+    private fun askStorageAccess() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName"))
+            runCatching { startActivity(intent) }.onFailure {
+                startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+            }
+        } else {
+            storagePermission.launch(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE))
+        }
     }
 }

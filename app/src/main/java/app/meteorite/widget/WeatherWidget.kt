@@ -32,7 +32,8 @@ class WeatherWidget : AppWidgetProvider() {
                 fun push(views: RemoteViews) = ids.forEach { manager.updateAppWidget(it, views) }
 
                 // Show the saved forecast right away, then try to refresh it.
-                val first = app.cityStore.load().firstOrNull()
+                // An unreadable cities.json is reported by the app; the widget just shows nothing.
+                val first = runCatching { app.cityStore.load() }.getOrNull()?.firstOrNull()
                 val saved = first?.let { app.forecastCache.load(it) }
                 push(render(context, first, saved?.forecast, saved?.savedAt, null, saved?.source))
 
@@ -45,11 +46,11 @@ class WeatherWidget : AppWidgetProvider() {
                         null
                     }
                     if (moved != null) {
-                        app.cityStore.upsert(moved)
+                        runCatching { app.cityStore.upsert(moved) }
                         city = moved
                     }
                 }
-                if (city != null) {
+                if (city != null && city.hasPosition) {
                     val cached = if (city === first) saved else app.forecastCache.load(city)
                     if (city !== first) {
                         push(render(context, city, cached?.forecast, cached?.savedAt, null, cached?.source))
