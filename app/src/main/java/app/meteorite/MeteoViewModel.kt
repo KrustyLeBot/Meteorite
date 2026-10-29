@@ -140,9 +140,9 @@ class MeteoViewModel(app: Application) : AndroidViewModel(app) {
                 is SyncState.Done -> {
                     syncing = false
                     if (moveToFolder() || state.changes > 0) reloadCities()
-                    if (state.changes > 0) show("Villes synchronisées avec Proton Drive")
+                    if (state.changes > 0) show("Villes synchronisées")
                 }
-                is SyncState.Failed -> { syncing = false; show("Échec de la synchro Proton Drive") }
+                is SyncState.Failed -> { syncing = false; show("Échec de la synchro") }
                 SyncState.TimedOut -> { syncing = false; show("Synchro longue : elle continue en arrière-plan") }
                 is SyncState.Skipped -> {
                     syncing = false

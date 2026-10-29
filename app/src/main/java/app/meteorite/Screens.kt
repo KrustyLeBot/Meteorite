@@ -137,7 +137,7 @@ private fun MainScreen(vm: MeteoViewModel, onAllowBackground: () -> Unit, onLoca
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             vm.storeError?.let { SuiteBanner(it, tone = Tone.Error, title = "Villes illisibles", icon = Icons.Default.ErrorOutline) }
-            if (vm.syncing) SuiteBanner("Villes en lecture seule le temps de la synchro.", title = "Synchronisation avec Proton Drive", icon = Icons.Default.Sync, progress = -1f)
+            if (vm.syncing) SuiteBanner("Villes en lecture seule le temps de la synchro.", title = "Synchronisation", icon = Icons.Default.Sync, progress = -1f)
             vm.notice?.let { SuiteBanner(it) }
             if (vm.needsStorageAccess) {
                 SuiteBanner("Autorise l'accès aux fichiers pour que Synchrotron sauvegarde tes villes (Documents/Meteorite).", icon = Icons.Default.Folder) {

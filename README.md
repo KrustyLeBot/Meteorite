@@ -19,7 +19,7 @@ A simple, ad-free weather app for Android. The interface is in French.
 Weather and city search come from [Open-Meteo](https://open-meteo.com/); the town name of the phone
 position comes from OpenStreetMap Nominatim. Both are free, with no account and no API key.
 Cities are stored in `Documents/Meteorite/cities.json` (`{"format_version": 1, "cities": [...]}`,
-written atomically through a `.tmp` file). That folder needs the "all files access" permission,
+written atomically through a `.<name>.synctmp-<uuid>` temporary, flushed to disk, then renamed). That folder needs the "all files access" permission,
 which the app asks for (banner) only when Synchrotron is installed; until then the list stays in
 the app's private storage. "Ma position" is only a placeholder in the file: its coordinates belong
 to the phone and stay private, so moving around never rewrites the synced file. An unreadable file

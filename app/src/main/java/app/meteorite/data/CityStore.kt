@@ -102,21 +102,15 @@ class CityStore(private val context: Context) {
         if (current != toJson(cities).toString()) write(f, cities)
     }
 
+    /** A sync may be replacing the file: a parse failure is read again once before being reported. */
     private fun readRoot(f: File): JSONObject = try {
-        JSONObject(f.readText())
-    } catch (e: Exception) {
-        throw IllegalStateException("${f.path} est illisible (${e.message}). Il ne sera pas modifié.", e)
+        AtomicFiles.read(f) { JSONObject(it) } ?: JSONObject()
+    } catch (e: UnreadableFileException) {
+        throw IllegalStateException("${f.path} est illisible. Il ne sera pas modifié.", e)
     }
 
-    private fun write(target: File, cities: List<City>) {
-        target.parentFile?.mkdirs()
-        val tmp = File(target.parentFile, "${target.name}.tmp")
-        tmp.writeText(JSONObject().put("format_version", FORMAT_VERSION).put("cities", toJson(cities)).toString(2))
-        if (!tmp.renameTo(target)) {
-            tmp.delete()
-            throw IllegalStateException("Impossible d'enregistrer ${target.path}")
-        }
-    }
+    private fun write(target: File, cities: List<City>) =
+        AtomicFiles.write(target, JSONObject().put("format_version", FORMAT_VERSION).put("cities", toJson(cities)).toString(2))
 
     private fun toJson(cities: List<City>) = JSONArray().also { arr ->
         cities.forEach {
